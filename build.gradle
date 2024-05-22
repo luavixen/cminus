@@ -1,0 +1,68 @@
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '1.9.24'
+    id 'fabric-loom' version '1.6.9'
+}
+
+group = project.mod_group
+archivesBaseName = project.mod_name
+
+ext.versionModified = 'git diff-index --quiet HEAD'.execute().waitFor() != 0
+ext.versionRevision = 'git rev-list --count HEAD'.execute().text.trim()
+ext.versionHash = 'git rev-parse --short HEAD'.execute().text.trim()
+version = "0.0.${ext.versionRevision}-${ext.versionHash}${ext.versionModified ? '-MODIFIED' : ''}"
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    includeImplementation
+
+    implementation {
+        extendsFrom includeImplementation
+    }
+    include {
+        extendsFrom includeImplementation
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_version}:v2"
+
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    includeImplementation "org.jetbrains.kotlin:kotlin-stdlib:${project.kotlin_version}"
+    includeImplementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${project.kotlin_version}"
+    includeImplementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:${project.kotlin_version}"
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+compileJava {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = '21'
+        apiVersion = '1.9'
+        languageVersion = '1.9'
+        freeCompilerArgs += [
+            '-Xno-call-assertions',
+            '-Xno-receiver-assertions',
+            '-Xno-param-assertions',
+        ]
+    }
+}
+
+processResources {
+    filesMatching('fabric.mod.json') {
+        expand 'version': version
+    }
+}

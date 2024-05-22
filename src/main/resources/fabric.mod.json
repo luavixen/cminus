@@ -1,0 +1,37 @@
+{
+    "schemaVersion": 1,
+
+    "id": "cminus",
+    "version": "${version}",
+
+    "depends": {
+        "java": ">=17",
+        "minecraft": ">=1.20.6",
+        "fabricloader": ">=0.14.0",
+        "fabric": "*"
+    },
+
+    "name": "CREATIVE-",
+    "description": "Fabric server plugin for MnSnD's CREATIVE- SMP.",
+
+    "license": "UNLICENSED",
+    "authors": [
+        {
+            "name": "luavixen",
+            "contact": {
+                "email": "lua@foxgirl.dev",
+                "website": "https://foxgirl.dev/"
+            }
+        }
+    ],
+
+    "entrypoints": {
+        "server": ["dev.foxgirl.cminus.CMinusKt::init"]
+    },
+    "mixins": [
+        {
+            "config": "cminus.mixins.json",
+            "environment": "server"
+        }
+    ]
+}

@@ -1,0 +1,14 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "compatibilityLevel": "JAVA_21",
+    "package": "dev.foxgirl.cminus.mixin",
+    "injectors": {
+        "defaultRequire": 1
+    },
+    "server": [
+        "MixinServerCommonNetworkHandler",
+        "MixinServerPlayerEntity",
+        "MixinStringNbtReader"
+    ]
+}
