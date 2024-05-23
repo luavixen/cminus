@@ -23,6 +23,13 @@ fun init() {
     logger.info("Hello, world! :3c")
 }
 
+fun isInGameMode(player: PlayerEntity?): Boolean {
+    return player != null && (player as ServerPlayerEntity).interactionManager.gameMode === GameMode.SURVIVAL
+}
+fun isFlying(player: PlayerEntity?): Boolean {
+    return player != null && player.abilities.flying
+}
+
 fun onStart() {
 
 }
@@ -35,18 +42,20 @@ fun onTick() {
 
 fun onTickPlayer(player: ServerPlayerEntity) {
 
-    if (player.interactionManager.gameMode == GameMode.SURVIVAL) {
-        val abilities = player.abilities
-        if (player.hungerManager.foodLevel <= 0) {
-            if (abilities.allowFlying || abilities.flying) {
-                abilities.allowFlying = false
-                abilities.flying = false
+    if (isInGameMode(player)) {
+        player.abilities.apply {
+            if (player.hungerManager.foodLevel <= 0) {
+                if (allowFlying || flying) {
+                    allowFlying = false
+                    flying = false
+                    player.sendAbilitiesUpdate()
+                }
+            } else if (!allowFlying) {
+                allowFlying = true
                 player.sendAbilitiesUpdate()
             }
-        } else if (!abilities.allowFlying) {
-            abilities.allowFlying = true
-            player.sendAbilitiesUpdate()
         }
+        if (player.air < 0) player.air = 0
     }
 
 }
@@ -56,7 +65,7 @@ fun handlePacket(player: ServerPlayerEntity, packet: Packet<*>): Packet<*>? {
 }
 
 fun handlePlayerDamage(player: ServerPlayerEntity, amount: Float, source: DamageSource): Boolean {
-    if (player.interactionManager.gameMode == GameMode.SURVIVAL) {
+    if (isInGameMode(player)) {
         if (
             source.isOf(DamageTypes.FALL) ||
             source.isOf(DamageTypes.IN_WALL) ||
