@@ -6,11 +6,14 @@ import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
 import net.minecraft.entity.player.PlayerEntity
 import net.minecraft.network.packet.Packet
+import net.minecraft.registry.Registries
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.world.GameMode
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.nio.ByteBuffer
+import java.util.*
 
 val logger: Logger = LogManager.getLogger("CMinus")
 
@@ -21,6 +24,7 @@ fun init() {
     ServerLifecycleEvents.SERVER_STARTING.register { onStart() }
     ServerTickEvents.START_SERVER_TICK.register { onTick() }
     logger.info("Hello, world! :3c")
+    DB.connect()
 }
 
 fun isInGameMode(player: PlayerEntity?): Boolean {
@@ -42,20 +46,34 @@ fun onTick() {
 
 fun onTickPlayer(player: ServerPlayerEntity) {
 
-    if (isInGameMode(player)) {
-        player.abilities.apply {
-            if (player.hungerManager.foodLevel <= 0) {
-                if (allowFlying || flying) {
-                    allowFlying = false
-                    flying = false
-                    player.sendAbilitiesUpdate()
-                }
-            } else if (!allowFlying) {
-                allowFlying = true
+    if (!isInGameMode(player)) return
+
+    player.abilities.apply {
+        if (player.hungerManager.foodLevel <= 0) {
+            if (allowFlying || flying) {
+                allowFlying = false
+                flying = false
                 player.sendAbilitiesUpdate()
             }
+        } else if (!allowFlying) {
+            allowFlying = true
+            player.sendAbilitiesUpdate()
         }
-        if (player.air < 0) player.air = 0
+    }
+    if (player.air < 0) player.air = 0
+
+    for (i in 0 until player.inventory.size()) {
+        val stack = player.inventory.getStack(i)
+        if (stack.isEmpty) continue
+        Registries.BLOCK.streamEntries().forEach { entry ->
+            if (stack.item == entry.value().asItem()) {
+                DB.acquire { conn ->
+                    conn.createStatement().use { stmt ->
+                        stmt.execute("INSERT IGNORE INTO blocks (player, block) VALUES (X'${UUIDEncoding.toHex(player.uuid)}', '${entry.idAsString}')")
+                    }
+                }
+            }
+        }
     }
 
 }
@@ -82,5 +100,23 @@ fun handlePlayerDamage(player: ServerPlayerEntity, amount: Float, source: Damage
         return false
     }
     return true
+}
 
+@OptIn(ExperimentalStdlibApi::class)
+object UUIDEncoding {
+    fun toByteArray(uuid: UUID): ByteArray {
+        return ByteBuffer.wrap(ByteArray(16))
+            .putLong(uuid.mostSignificantBits)
+            .putLong(uuid.leastSignificantBits)
+            .array()
+    }
+    fun fromByteArray(bytes: ByteArray): UUID {
+        return ByteBuffer.wrap(bytes).let { UUID(it.getLong(), it.getLong()) }
+    }
+    fun toHex(uuid: UUID): String {
+        return toByteArray(uuid).toHexString()
+    }
+    fun fromHex(string: String): UUID {
+        return fromByteArray(string.hexToByteArray())
+    }
 }
