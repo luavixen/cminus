@@ -9,6 +9,7 @@
     "server": [
         "MixinMinecraftServer",
         "MixinPlayerEntity",
+        "MixinPlayerInventory",
         "MixinServerCommonNetworkHandler",
         "MixinServerPlayerEntity",
         "MixinStringNbtReader"
