@@ -1,15 +1,19 @@
 package dev.foxgirl.cminus
 
-import dev.foxgirl.cminus.util.UUIDEncoding
 import dev.foxgirl.cminus.util.asList
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.fabricmc.fabric.api.event.player.UseBlockCallback
+import net.minecraft.block.Block
 import net.minecraft.block.Blocks
+import net.minecraft.entity.Entity
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
 import net.minecraft.entity.player.PlayerEntity
+import net.minecraft.item.Item
 import net.minecraft.item.ItemStack
 import net.minecraft.network.packet.Packet
 import net.minecraft.registry.Registries
@@ -18,6 +22,7 @@ import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.server.world.ServerWorld
 import net.minecraft.text.Text
 import net.minecraft.util.ActionResult
+import net.minecraft.util.Formatting
 import net.minecraft.util.Hand
 import net.minecraft.util.Identifier
 import net.minecraft.util.hit.BlockHitResult
@@ -30,16 +35,24 @@ val logger: Logger = LogManager.getLogger("CMinus")
 lateinit var server: MinecraftServer
 
 fun init() {
+
     ServerLifecycleEvents.SERVER_STARTING.register { server = it }
     ServerLifecycleEvents.SERVER_STARTING.register { onStart() }
     ServerTickEvents.START_SERVER_TICK.register { onTick() }
+    CommandRegistrationCallback.EVENT.register(::onCommandRegistration)
+
+    ServerEntityEvents.ENTITY_LOAD.register(::handleEntityLoad)
+
     ServerPlayerEvents.ALLOW_DEATH.register(::handlePlayerDeath)
     ServerPlayerEvents.AFTER_RESPAWN.register(::handlePlayerRespawn)
     UseBlockCallback.EVENT.register { player, world, hand, hit ->
         handlePlayerUseBlock(player as ServerPlayerEntity, world as ServerWorld, hand, hit)
     }
+
     logger.info("Hello, world! :3c")
+
     DB.connect().get()
+
 }
 
 fun isInGameMode(player: PlayerEntity?): Boolean {
@@ -47,6 +60,20 @@ fun isInGameMode(player: PlayerEntity?): Boolean {
 }
 fun isFlying(player: PlayerEntity?): Boolean {
     return player != null && player.abilities.flying
+}
+
+fun getItemID(item: Item): Identifier = Registries.ITEM.getId(item)
+fun getBlockID(block: Block): Identifier = Registries.BLOCK.getId(block)
+
+fun getBlock(stack: ItemStack): Block = getBlock(stack.item)
+fun getBlock(item: Item): Block = getBlock(getItemID(item))
+fun getBlock(id: Identifier): Block = Registries.BLOCK.get(id)
+
+fun <T> tryBlock(stack: ItemStack, consumer: (Identifier, Block) -> T?): T? = tryBlock(stack.item, consumer)
+fun <T> tryBlock(item: Item, consumer: (Identifier, Block) -> T?): T? {
+    val id = getItemID(item)
+    val block = getBlock(id)
+    return if (block !== Blocks.AIR) consumer(id, block) else null
 }
 
 fun onStart() {
@@ -85,6 +112,32 @@ fun handlePacket(player: ServerPlayerEntity, packet: Packet<*>): Packet<*>? {
 
 }
 
+fun setupPlayer(player: ServerPlayerEntity) {
+
+    DB.acquire { conn, actions ->
+        actions.addPlayer(player.uuid, player.nameForScoreboard)
+    }
+
+    val uuid = player.uuid
+    val blocks = player.inventory.asList().mapNotNull {
+        tryBlock(it) { id, block ->
+            if (player.knownOwnedBlocks.add(block)) id.toString() else null
+        }
+    }
+    if (blocks.isNotEmpty()) {
+        DB.acquire { conn, actions -> actions.addBlocks(uuid, blocks) }
+    }
+
+}
+
+fun handleEntityLoad(entity: Entity, world: ServerWorld) {
+
+    if (entity is ServerPlayerEntity && isInGameMode(entity)) {
+        setupPlayer(entity)
+    }
+
+}
+
 fun handlePlayerDamage(player: ServerPlayerEntity, source: DamageSource, amount: Float): Boolean {
 
     if (!isInGameMode(player)) return true
@@ -110,21 +163,6 @@ fun handlePlayerDamage(player: ServerPlayerEntity, source: DamageSource, amount:
 
 fun handlePlayerDeath(player: ServerPlayerEntity, source: DamageSource, amount: Float): Boolean {
 
-    DB
-        .acquire { conn, actions ->
-            val blocks = mutableListOf<String>()
-            conn.prepareStatement("SELECT block FROM blocks WHERE player = ?").use { stmt ->
-                stmt.setBytes(1, UUIDEncoding.toByteArray(player.uuid))
-                stmt.executeQuery().use { results ->
-                    while (results.next()) {
-                        blocks.add(results.getString("block"))
-                    }
-                }
-            }
-            blocks
-        }
-        .thenAcceptAsync({ blocks -> blocks.forEach { player.sendMessage(Text.literal(" - ").append(Registries.BLOCK.get(Identifier(it)).name)) } }, server)
-
     return true
 
 }
@@ -133,37 +171,16 @@ fun handlePlayerRespawn(oldPlayer: ServerPlayerEntity, newPlayer: ServerPlayerEn
 
     if (!isInGameMode(newPlayer)) return
 
-    val uuid = newPlayer.uuid
-    val blocks = mutableListOf<String>()
-
-    for (stack in newPlayer.inventory.asList()) {
-        if (stack.isEmpty) continue
-        val id = Registries.ITEM.getId(stack.item)
-        val block = Registries.BLOCK.get(id)
-        if (block !== Blocks.AIR && newPlayer.knownOwnedBlocks.add(block)) {
-            blocks.add(id.toString())
-        }
-    }
-
-    if (blocks.isNotEmpty()) {
-        DB.acquire { conn, actions -> actions.addBlocks(uuid, blocks) }
-    }
+    setupPlayer(newPlayer)
 
 }
 
 fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: Hand, hit: BlockHitResult): ActionResult {
 
-    if (isInGameMode(player)) return ActionResult.PASS
+    if (!isInGameMode(player)) return ActionResult.PASS
 
-    val stack = player.getStackInHand(hand)
-    if (stack.isEmpty) return ActionResult.PASS
-
-    val uuid = player.uuid
-
-    val id = Registries.ITEM.getId(stack.item)
-    val block = Registries.BLOCK.get(id)
-    if (block !== Blocks.AIR) {
-        DB.acquire { conn, actions -> actions.useBlock(uuid, id.toString()) }
+    tryBlock(player.getStackInHand(hand)) { id, block ->
+        DB.acquire { conn, actions -> actions.useBlock(player.uuid, id.toString()) }
     }
 
     return ActionResult.PASS
@@ -172,16 +189,18 @@ fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: H
 
 fun handlePlayerInventoryAdd(player: ServerPlayerEntity, stack: ItemStack) {
 
-    if (stack.isEmpty || !isInGameMode(player)) return
+    if (!isInGameMode(player)) return
 
-    val uuid = player.uuid
-
-    val id = Registries.ITEM.getId(stack.item)
-    val block = Registries.BLOCK.get(id)
-    if (block !== Blocks.AIR && player.knownOwnedBlocks.add(block)) {
-        DB
-            .acquire { conn, actions -> actions.addBlock(uuid, id.toString()) }
-            .thenAcceptAsync({ if (it) player.sendMessage(Text.literal("You discovered ").append(block.name).append("!")) }, server)
+    tryBlock(stack) { id, block ->
+        if (player.knownOwnedBlocks.add(block)) {
+            DB
+                .acquire { conn, actions -> actions.addBlock(player.uuid, id.toString()) }
+                .thenAcceptAsync({ isNewDiscovery ->
+                    if (isNewDiscovery) {
+                        player.sendMessage(Text.literal("You discovered ").append(block.name.copy().formatted(Formatting.GREEN)).append("!"))
+                    }
+                }, server)
+        }
     }
 
 }
