@@ -135,6 +135,11 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         }
     }
 
+    fun prepareOffersFor(player: PlayerEntity): Promise<Unit> {
+        setCustomer(player)
+        return updateOffers()
+    }
+
     override fun getOffers(): TradeOfferList {
         return offers
     }

@@ -1,10 +1,27 @@
 package dev.foxgirl.cminus.util
 
 import net.minecraft.entity.Entity
+import net.minecraft.entity.player.PlayerEntity
+import net.minecraft.item.ItemStack
 import net.minecraft.particle.ParticleEffect
 import net.minecraft.sound.SoundCategory
 import net.minecraft.sound.SoundEvent
 import net.minecraft.util.math.Vec3d
+
+fun PlayerEntity.give(stack: ItemStack) = this.give(stack, true)
+fun PlayerEntity.give(stack: ItemStack, drop: Boolean): Boolean {
+    if (stack.isEmpty) return true
+    if (giveItemStack(stack)) return true
+    if (drop) {
+        val entity = dropItem(stack, false)
+        if (entity != null) {
+            entity.resetPickupDelay()
+            entity.setOwner(uuid)
+            return true
+        }
+    }
+    return false
+}
 
 fun Entity.play(
     sound: SoundEvent,
