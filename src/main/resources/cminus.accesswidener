@@ -1,0 +1,5 @@
+accessWidener v2 named
+
+accessible field net/minecraft/entity/passive/SheepEntity COLOR Lnet/minecraft/entity/data/TrackedData;
+accessible field net/minecraft/entity/passive/CatEntity CAT_VARIANT Lnet/minecraft/entity/data/TrackedData;
+accessible field net/minecraft/entity/passive/WolfEntity VARIANT Lnet/minecraft/entity/data/TrackedData;

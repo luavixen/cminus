@@ -1,12 +1,10 @@
 package dev.foxgirl.cminus.mixin;
 
-import dev.foxgirl.cminus.BlockOwner;
 import dev.foxgirl.cminus.CMinusKt;
-import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
-import net.minecraft.block.Block;
+import dev.foxgirl.cminus.PlayerProperties;
+import dev.foxgirl.cminus.PlayerPropertiesAccess;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.server.network.ServerPlayerEntity;
-import org.jetbrains.annotations.NotNull;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,17 +12,14 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.Set;
-
 @Mixin(ServerPlayerEntity.class)
-public abstract class MixinServerPlayerEntity implements BlockOwner {
+public abstract class MixinServerPlayerEntity implements PlayerPropertiesAccess {
 
     @Unique
-    private final @NotNull Set<@NotNull Block> knownOwnedBlocks = new ObjectOpenHashSet<>();
+    private final PlayerProperties cminusPlayerProperties = new PlayerProperties();
 
-    @Override
-    public @NotNull Set<@NotNull Block> getKnownOwnedBlocks() {
-        return knownOwnedBlocks;
+    public PlayerProperties getCMinusPlayerProperties() {
+        return cminusPlayerProperties;
     }
 
     @Inject(method = "damage(Lnet/minecraft/entity/damage/DamageSource;F)Z", at = @At("HEAD"), cancellable = true)

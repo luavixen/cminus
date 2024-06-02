@@ -7,6 +7,8 @@
         "defaultRequire": 1
     },
     "server": [
+        "MixinDataTracker",
+        "MixinDataTracker$Builder",
         "MixinMinecraftServer",
         "MixinPlayerEntity",
         "MixinPlayerInventory",

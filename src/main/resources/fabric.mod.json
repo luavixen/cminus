@@ -33,5 +33,6 @@
             "config": "cminus.mixins.json",
             "environment": "server"
         }
-    ]
+    ],
+    "accessWidener" : "cminus.accesswidener"
 }

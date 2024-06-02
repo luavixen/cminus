@@ -1,5 +1,6 @@
 package dev.foxgirl.cminus
 
+import dev.foxgirl.cminus.util.Promise
 import dev.foxgirl.cminus.util.UUIDEncoding
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
@@ -9,32 +10,31 @@ import java.sql.PreparedStatement
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.*
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.function.Supplier
 
 object DB : AutoCloseable {
+
+    private val logger: Logger = LogManager.getLogger("CMinus/DB")
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor(this::createExecutorThread)
     private val closed: AtomicBoolean = AtomicBoolean(false)
 
-    private val logger: Logger = LogManager.getLogger("CMinus Database")
+    private var executorThread: Thread? = null
+    private var shutdownThread: Thread? = null
 
     private fun createExecutorThread(runnable: Runnable): Thread {
-        return Thread(runnable, "CMinus Database Thread").apply { isDaemon = true }
+        return Thread(runnable, "CMinus DB").also { it.isDaemon = true; executorThread = it }
     }
     private fun createShutdownThread(runnable: Runnable): Thread {
-        return Thread(runnable, "CMinus Database Shutdown Hook")
+        return Thread(runnable, "CMinus DB shutdown hook").also { it.isDaemon = false; shutdownThread = it }
     }
 
     private lateinit var conn: Connection
 
-    private fun <T> execute(block: Supplier<T>): CompletableFuture<T> {
-        return CompletableFuture.supplyAsync(block, executor)
-    }
+    private fun <T> execute(block: () -> T): Promise<T> = Promise(executor, block)
 
     interface Actions {
         data class BlockRecord(val player: UUID, val block: String, val timeAdded: Instant, val timeUsed: Instant)
@@ -65,6 +65,14 @@ object DB : AutoCloseable {
         fun setPlayer(record: PlayerRecord): Boolean
 
         fun addPlayer(player: UUID, name: String): Boolean
+
+        fun getPlayerStand(player: UUID): String?
+        fun setPlayerStand(player: UUID, stand: String): Boolean
+
+        fun getPlayerLevel(player: UUID): Int?
+        fun setPlayerLevel(player: UUID, level: Int): Boolean
+
+        fun incrementPlayerLevel(player: UUID): Boolean
     }
 
     private lateinit var stmtListBlocks: PreparedStatement
@@ -81,10 +89,25 @@ object DB : AutoCloseable {
     private lateinit var stmtGetPlayerByName: PreparedStatement
     private lateinit var stmtSetPlayer: PreparedStatement
     private lateinit var stmtAddPlayer: PreparedStatement
+    private lateinit var stmtGetPlayerStand: PreparedStatement
+    private lateinit var stmtSetPlayerStand: PreparedStatement
+    private lateinit var stmtGetPlayerLevel: PreparedStatement
+    private lateinit var stmtSetPlayerLevel: PreparedStatement
+    private lateinit var stmtIncrementPlayerLevel: PreparedStatement
 
     private val actions: Actions = object : Actions {
 
+        private fun assertOpenAndOnThread() {
+            if (closed.get()) {
+                throw IllegalStateException("Database connection is closed")
+            }
+            if (executorThread != Thread.currentThread()) {
+                throw IllegalStateException("Database action attempted on wrong thread")
+            }
+        }
+
         override fun listBlocks(): Sequence<Actions.BlockRecord> {
+            assertOpenAndOnThread()
             logger.info("Action: listBlocks")
             return sequence {
                 stmtListBlocks.executeQuery().use { rs ->
@@ -100,6 +123,7 @@ object DB : AutoCloseable {
             }
         }
         override fun listBlocks(player: UUID): Sequence<Actions.BlockRecord> {
+            assertOpenAndOnThread()
             logger.info("Action: listBlocks player: {}", player)
             return sequence {
                 stmtListBlocksByPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
@@ -117,6 +141,7 @@ object DB : AutoCloseable {
         }
 
         override fun listPlayers(): Sequence<Actions.PlayerRecord> {
+            assertOpenAndOnThread()
             logger.info("Action: listPlayers")
             return sequence {
                 stmtListPlayers.executeQuery().use { rs ->
@@ -133,6 +158,7 @@ object DB : AutoCloseable {
         }
 
         override fun getBlock(player: UUID, block: String): Actions.BlockRecord? {
+            assertOpenAndOnThread()
             logger.info("Action: getBlock player: {}, block: {}", player, block)
             stmtGetBlock.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtGetBlock.setString(2, block)
@@ -150,6 +176,7 @@ object DB : AutoCloseable {
             }
         }
         override fun setBlock(record: Actions.BlockRecord): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: setBlock record: {}", record)
             stmtSetBlock.setBytes(1, UUIDEncoding.toByteArray(record.player))
             stmtSetBlock.setString(2, record.block)
@@ -159,6 +186,7 @@ object DB : AutoCloseable {
         }
 
         override fun hasBlock(player: UUID, block: String): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: hasBlock player: {}, block: {}", player, block)
             stmtHasBlock.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtHasBlock.setString(2, block)
@@ -166,6 +194,7 @@ object DB : AutoCloseable {
         }
 
         override fun useBlock(player: UUID, block: String): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: useBlock player: {}, block: {}", player, block)
             stmtUseBlock.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtUseBlock.setString(2, block)
@@ -173,12 +202,14 @@ object DB : AutoCloseable {
         }
 
         override fun addBlock(player: UUID, block: String): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: addBlock player: {}, block: {}", player, block)
             stmtAddBlock.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtAddBlock.setString(2, block)
             return stmtAddBlock.executeUpdate() > 0
         }
         override fun addBlocks(player: UUID, blocks: Iterable<String>): Int {
+            assertOpenAndOnThread()
             logger.info("Action: addBlocks player: {}, blocks: {}", player, blocks)
             try {
                 var i = 0
@@ -195,12 +226,14 @@ object DB : AutoCloseable {
         }
 
         override fun removeBlock(player: UUID, block: String): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: removeBlock player: {}, block: {}", player, block)
             stmtRemoveBlock.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtRemoveBlock.setString(2, block)
             return stmtRemoveBlock.executeUpdate() > 0
         }
         override fun removeBlocks(player: UUID, blocks: Iterable<String>): Int {
+            assertOpenAndOnThread()
             logger.info("Action: removeBlocks player: {}, blocks: {}", player, blocks)
             try {
                 var i = 0
@@ -217,12 +250,14 @@ object DB : AutoCloseable {
         }
 
         override fun clearBlocks(player: UUID): Int {
+            assertOpenAndOnThread()
             logger.info("Action: clearBlocks player: {}", player)
             stmtClearBlocks.setBytes(1, UUIDEncoding.toByteArray(player))
             return stmtClearBlocks.executeUpdate()
         }
 
         override fun getPlayer(player: UUID): Actions.PlayerRecord? {
+            assertOpenAndOnThread()
             logger.info("Action: getPlayer player: {}", player)
             stmtGetPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtGetPlayer.executeQuery().use { rs ->
@@ -237,6 +272,7 @@ object DB : AutoCloseable {
             }
         }
         override fun getPlayer(name: String): Actions.PlayerRecord? {
+            assertOpenAndOnThread()
             logger.info("Action: getPlayer name: {}", name)
             stmtGetPlayerByName.setString(1, name)
             stmtGetPlayerByName.executeQuery().use { rs ->
@@ -251,6 +287,7 @@ object DB : AutoCloseable {
             }
         }
         override fun setPlayer(record: Actions.PlayerRecord): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: setPlayer record: {}", record)
             stmtSetPlayer.setBytes(1, UUIDEncoding.toByteArray(record.player))
             stmtSetPlayer.setString(2, record.stand)
@@ -259,19 +296,59 @@ object DB : AutoCloseable {
         }
 
         override fun addPlayer(player: UUID, name: String): Boolean {
+            assertOpenAndOnThread()
             logger.info("Action: addPlayer player: {}, name: {}", player, name)
             stmtAddPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
             stmtAddPlayer.setString(2, name)
             return stmtAddPlayer.executeUpdate() > 0
         }
 
+        override fun getPlayerStand(player: UUID): String? {
+            assertOpenAndOnThread()
+            logger.info("Action: getPlayerStand player: {}", player)
+            stmtGetPlayerStand.setBytes(1, UUIDEncoding.toByteArray(player))
+            stmtGetPlayerStand.executeQuery().use { rs ->
+                return if (rs.next()) rs.getString(1) else null
+            }
+        }
+        override fun setPlayerStand(player: UUID, stand: String): Boolean {
+            assertOpenAndOnThread()
+            logger.info("Action: setPlayerStand player: {}, stand: {}", player, stand)
+            stmtSetPlayerStand.setString(1, stand)
+            stmtSetPlayerStand.setBytes(2, UUIDEncoding.toByteArray(player))
+            return stmtSetPlayerStand.executeUpdate() > 0
+        }
+
+        override fun getPlayerLevel(player: UUID): Int? {
+            assertOpenAndOnThread()
+            logger.info("Action: getPlayerLevel player: {}", player)
+            stmtGetPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
+            stmtGetPlayerLevel.executeQuery().use { rs ->
+                return if (rs.next()) rs.getInt(1) else null
+            }
+        }
+        override fun setPlayerLevel(player: UUID, level: Int): Boolean {
+            assertOpenAndOnThread()
+            logger.info("Action: setPlayerLevel player: {}, level: {}", player, level)
+            stmtSetPlayerLevel.setInt(1, level)
+            stmtSetPlayerLevel.setBytes(2, UUIDEncoding.toByteArray(player))
+            return stmtSetPlayerLevel.executeUpdate() > 0
+        }
+
+        override fun incrementPlayerLevel(player: UUID): Boolean {
+            assertOpenAndOnThread()
+            logger.info("Action: incrementPlayerLevel player: {}", player)
+            stmtIncrementPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
+            return stmtSetPlayerStand.executeUpdate() > 0
+        }
+
     }
 
-    fun <T> acquire(block: (Connection, Actions) -> T): CompletableFuture<T> {
+    fun <T> perform(block: (Connection, Actions) -> T): Promise<T> {
         return execute { block(conn, actions) }
     }
 
-    fun connect(): CompletableFuture<Unit> {
+    fun connect(): Promise<Unit> {
         return execute {
             try {
                 logger.info("Connecting to database...")
@@ -327,6 +404,16 @@ object DB : AutoCloseable {
                     stmt("MERGE INTO players (player, name, stand, level) VALUES (?, ?, ?, ?)")
                 stmtAddPlayer =
                     stmt("INSERT IGNORE INTO players (player, name) VALUES (?, ?)")
+                stmtGetPlayerStand =
+                    stmt("SELECT stand FROM players WHERE player = ?")
+                stmtSetPlayerStand =
+                    stmt("UPDATE players SET stand = ? WHERE player = ?")
+                stmtGetPlayerLevel =
+                    stmt("SELECT level FROM players WHERE player = ?")
+                stmtSetPlayerLevel =
+                    stmt("UPDATE players SET level = ? WHERE player = ?")
+                stmtIncrementPlayerLevel =
+                    stmt("UPDATE players SET level = level + 1 WHERE player = ?")
             } catch (cause: Exception) {
                 throw RuntimeException("Failed to connect/initialize CMinus database", cause)
             }

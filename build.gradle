@@ -11,6 +11,10 @@ ext.versionRevision = 'git rev-list --count HEAD'.execute().text.trim()
 ext.versionHash = 'git rev-parse --short HEAD'.execute().text.trim()
 version = "0.0.${ext.versionRevision}-${ext.versionHash}${ext.versionModified ? '-MODIFIED' : ''}"
 
+loom {
+    accessWidenerPath = file 'src/main/resources/cminus.accesswidener'
+}
+
 repositories {
     mavenCentral()
 }
