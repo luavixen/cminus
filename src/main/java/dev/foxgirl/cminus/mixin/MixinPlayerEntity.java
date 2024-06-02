@@ -1,8 +1,12 @@
 package dev.foxgirl.cminus.mixin;
 
 import dev.foxgirl.cminus.CMinusKt;
+import dev.foxgirl.cminus.PlayerPropertiesKt;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerAbilities;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.server.network.ServerPlayerEntity;
 import org.objectweb.asm.Opcodes;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,5 +32,35 @@ public abstract class MixinPlayerEntity {
     private boolean injected$handleFallDamage$allowFlying(PlayerAbilities abilities) {
         return CMinusKt.isInGameMode((PlayerEntity) (Object) this) ? false : abilities.allowFlying;
     }
+
+    @Redirect(
+        method = "applyDamage(Lnet/minecraft/entity/damage/DamageSource;F)V", at = @At(
+            target = "Lnet/minecraft/entity/player/PlayerEntity;modifyAppliedDamage(Lnet/minecraft/entity/damage/DamageSource;F)F",
+            value = "INVOKE"
+        )
+    )
+    private float injected$applyDamage$modifyAppliedDamage(PlayerEntity player, DamageSource source, float amount) {
+        var damage = player.modifyAppliedDamage(source, amount);
+        if (CMinusKt.isInGameMode(player)) {
+            damage = damage / (1.0F + 0.1F * PlayerPropertiesKt.getProperties(player).getKnownLevel());
+        }
+        return damage;
+    }
+
+    @Redirect(
+        method = "attack(Lnet/minecraft/entity/Entity;)V", at = @At(
+            target = "Lnet/minecraft/entity/Entity;damage(Lnet/minecraft/entity/damage/DamageSource;F)Z",
+            value = "INVOKE"
+        )
+    )
+    private boolean injected$attack$damage(Entity entity, DamageSource source, float amount) {
+        if (entity.damage(source, amount)) {
+            CMinusKt.handlePlayerAttackAndDamageEntity((ServerPlayerEntity) (Object) this, entity, source, amount);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 
 }

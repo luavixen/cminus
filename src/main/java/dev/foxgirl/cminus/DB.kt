@@ -10,10 +10,12 @@ import java.sql.PreparedStatement
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.*
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.random.Random
 
 object DB : AutoCloseable {
 
@@ -61,7 +63,7 @@ object DB : AutoCloseable {
         fun clearBlocks(player: UUID): Int
 
         fun getPlayer(player: UUID): PlayerRecord?
-        fun getPlayer(name: String): PlayerRecord?
+        fun getPlayerByName(name: String): PlayerRecord?
         fun setPlayer(record: PlayerRecord): Boolean
 
         fun addPlayer(player: UUID, name: String): Boolean
@@ -95,41 +97,61 @@ object DB : AutoCloseable {
     private lateinit var stmtSetPlayerLevel: PreparedStatement
     private lateinit var stmtIncrementPlayerLevel: PreparedStatement
 
+    private fun trimToMaxLength(string: String, length: Int): String {
+        return if (string.length > length) string.substring(0, length - 1) + "\u2026" else string
+    }
+
     private val actions: Actions = object : Actions {
 
-        private fun assertOpenAndOnThread() {
+        private fun <T> guardAction(name: String, vararg params: Pair<String, *>, block: () -> T): T {
             if (closed.get()) {
-                throw IllegalStateException("Database connection is closed")
+                throw IllegalStateException("Database action $name failed, connection is closed")
             }
             if (executorThread != Thread.currentThread()) {
-                throw IllegalStateException("Database action attempted on wrong thread")
+                throw IllegalStateException("Database action $name failed, on wrong thread")
             }
+
+            val id = String.format("%08x", Random.nextInt())
+            val params = trimToMaxLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60)
+
+            val timeStarted = System.nanoTime()
+            fun timeTaken(): String {
+                return String.format("%.4f", (System.nanoTime() - timeStarted).toDouble() * 1E-6)
+            }
+
+            val result = try {
+                block()
+            } catch (cause: Exception) {
+                logger.error("Action {}[{}] ({}) failed in {}ms: {}", name, id, params, timeTaken(), cause.message ?: cause.javaClass.name)
+                throw cause
+            }
+
+            logger.info("Action {}[{}] ({}) done in {}ms: {}", name, id, params, timeTaken(), trimToMaxLength(result.toString(), 40))
+            return result
         }
 
         override fun listBlocks(): Sequence<Actions.BlockRecord> {
-            assertOpenAndOnThread()
-            logger.info("Action: listBlocks")
-            return sequence {
-                stmtListBlocks.executeQuery().use { rs ->
-                    while (rs.next()) {
-                        yield(Actions.BlockRecord(
-                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                            rs.getString(2),
-                            rs.getTimestamp(3).toInstant(),
-                            rs.getTimestamp(4).toInstant()
-                        ))
+            return guardAction("listBlocks") {
+                sequence {
+                    stmtListBlocks.executeQuery().use { rs ->
+                        while (rs.next()) {
+                            yield(Actions.BlockRecord(
+                                UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                                rs.getString(2),
+                                rs.getTimestamp(3).toInstant(),
+                                rs.getTimestamp(4).toInstant()
+                            ))
+                        }
                     }
                 }
             }
         }
         override fun listBlocks(player: UUID): Sequence<Actions.BlockRecord> {
-            assertOpenAndOnThread()
-            logger.info("Action: listBlocks player: {}", player)
-            return sequence {
-                stmtListBlocksByPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
-                stmtListBlocksByPlayer.executeQuery().use { rs ->
-                    while (rs.next()) {
-                        yield(Actions.BlockRecord(
+            return guardAction("listBlocks", "player" to player) {
+                sequence {
+                    stmtListBlocksByPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
+                    stmtListBlocksByPlayer.executeQuery().use { rs ->
+                        while (rs.next()) yield(Actions.BlockRecord(
                             UUIDEncoding.fromByteArray(rs.getBytes(1)),
                             rs.getString(2),
                             rs.getTimestamp(3).toInstant(),
@@ -141,12 +163,10 @@ object DB : AutoCloseable {
         }
 
         override fun listPlayers(): Sequence<Actions.PlayerRecord> {
-            assertOpenAndOnThread()
-            logger.info("Action: listPlayers")
-            return sequence {
-                stmtListPlayers.executeQuery().use { rs ->
-                    while (rs.next()) {
-                        yield(Actions.PlayerRecord(
+            return guardAction("listPlayers") {
+                sequence {
+                    stmtListPlayers.executeQuery().use { rs ->
+                        while (rs.next()) yield(Actions.PlayerRecord(
                             UUIDEncoding.fromByteArray(rs.getBytes(1)),
                             rs.getString(2),
                             rs.getString(3),
@@ -158,194 +178,200 @@ object DB : AutoCloseable {
         }
 
         override fun getBlock(player: UUID, block: String): Actions.BlockRecord? {
-            assertOpenAndOnThread()
-            logger.info("Action: getBlock player: {}, block: {}", player, block)
-            stmtGetBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtGetBlock.setString(2, block)
-            stmtGetBlock.executeQuery().use { rs ->
-                return if (rs.next()) {
-                    Actions.BlockRecord(
-                        UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                        rs.getString(2),
-                        rs.getTimestamp(3).toInstant(),
-                        rs.getTimestamp(4).toInstant()
-                    )
-                } else {
-                    null
+            return guardAction("getBlock", "player" to player, "block" to block) {
+                stmtGetBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtGetBlock.setString(2, block)
+                stmtGetBlock.executeQuery().use { rs ->
+                    if (rs.next()) {
+                        Actions.BlockRecord(
+                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                            rs.getString(2),
+                            rs.getTimestamp(3).toInstant(),
+                            rs.getTimestamp(4).toInstant()
+                        )
+                    } else null
                 }
             }
         }
         override fun setBlock(record: Actions.BlockRecord): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: setBlock record: {}", record)
-            stmtSetBlock.setBytes(1, UUIDEncoding.toByteArray(record.player))
-            stmtSetBlock.setString(2, record.block)
-            stmtSetBlock.setTimestamp(3, Timestamp.from(record.timeAdded))
-            stmtSetBlock.setTimestamp(4, Timestamp.from(record.timeUsed))
-            return stmtSetBlock.executeUpdate() > 0
+            return guardAction("setBlock", "record" to record) {
+                stmtSetBlock.setBytes(1, UUIDEncoding.toByteArray(record.player))
+                stmtSetBlock.setString(2, record.block)
+                stmtSetBlock.setTimestamp(3, Timestamp.from(record.timeAdded))
+                stmtSetBlock.setTimestamp(4, Timestamp.from(record.timeUsed))
+                stmtSetBlock.executeUpdate() > 0
+            }
         }
 
         override fun hasBlock(player: UUID, block: String): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: hasBlock player: {}, block: {}", player, block)
-            stmtHasBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtHasBlock.setString(2, block)
-            return stmtHasBlock.executeQuery().use { rs -> rs.next() }
+            return guardAction("hasBlock", "player" to player, "block" to block) {
+                stmtHasBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtHasBlock.setString(2, block)
+                stmtHasBlock.executeQuery().use { rs -> rs.next() }
+            }
         }
 
         override fun useBlock(player: UUID, block: String): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: useBlock player: {}, block: {}", player, block)
-            stmtUseBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtUseBlock.setString(2, block)
-            return stmtUseBlock.executeUpdate() > 0
+            return guardAction("useBlock", "player" to player, "block" to block) {
+                stmtUseBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtUseBlock.setString(2, block)
+                stmtUseBlock.executeUpdate() > 0
+            }
         }
 
         override fun addBlock(player: UUID, block: String): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: addBlock player: {}, block: {}", player, block)
-            stmtAddBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtAddBlock.setString(2, block)
-            return stmtAddBlock.executeUpdate() > 0
+            return guardAction("addBlock", "player" to player, "block" to block) {
+                stmtAddBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtAddBlock.setString(2, block)
+                stmtAddBlock.executeUpdate() > 0
+            }
         }
         override fun addBlocks(player: UUID, blocks: Iterable<String>): Int {
-            assertOpenAndOnThread()
-            logger.info("Action: addBlocks player: {}, blocks: {}", player, blocks)
-            try {
-                var i = 0
-                blocks.forEach { block ->
-                    stmtAddBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-                    stmtAddBlock.setString(2, block)
-                    stmtAddBlock.addBatch()
+            return guardAction("addBlock", "player" to player, "blocks" to blocks) {
+                try {
+                    var i = 0
+                    blocks.forEach { block ->
+                        stmtAddBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                        stmtAddBlock.setString(2, block)
+                        stmtAddBlock.addBatch()
+                    }
+                    stmtAddBlock.executeBatch().forEach { count -> if (count > 0) i++ }
+                    return@guardAction i
+                } finally {
+                    stmtAddBlock.clearBatch()
                 }
-                stmtAddBlock.executeBatch().forEach { count -> if (count > 0) i++ }
-                return i
-            } finally {
-                stmtAddBlock.clearBatch()
             }
         }
 
         override fun removeBlock(player: UUID, block: String): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: removeBlock player: {}, block: {}", player, block)
-            stmtRemoveBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtRemoveBlock.setString(2, block)
-            return stmtRemoveBlock.executeUpdate() > 0
+            return guardAction("removeBlock", "player" to player, "block" to block) {
+                stmtRemoveBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtRemoveBlock.setString(2, block)
+                stmtRemoveBlock.executeUpdate() > 0
+            }
         }
         override fun removeBlocks(player: UUID, blocks: Iterable<String>): Int {
-            assertOpenAndOnThread()
-            logger.info("Action: removeBlocks player: {}, blocks: {}", player, blocks)
-            try {
-                var i = 0
-                blocks.forEach { block ->
-                    stmtRemoveBlock.setBytes(1, UUIDEncoding.toByteArray(player))
-                    stmtRemoveBlock.setString(2, block)
-                    stmtRemoveBlock.addBatch()
+            return guardAction("removeBlocks", "player" to player, "blocks" to blocks) {
+                try {
+                    var i = 0
+                    blocks.forEach { block ->
+                        stmtRemoveBlock.setBytes(1, UUIDEncoding.toByteArray(player))
+                        stmtRemoveBlock.setString(2, block)
+                        stmtRemoveBlock.addBatch()
+                    }
+                    stmtRemoveBlock.executeBatch().forEach { count -> if (count > 0) i++ }
+                    return@guardAction i
+                } finally {
+                    stmtRemoveBlock.clearBatch()
                 }
-                stmtRemoveBlock.executeBatch().forEach { count -> if (count > 0) i++ }
-                return i
-            } finally {
-                stmtRemoveBlock.clearBatch()
             }
         }
 
         override fun clearBlocks(player: UUID): Int {
-            assertOpenAndOnThread()
-            logger.info("Action: clearBlocks player: {}", player)
-            stmtClearBlocks.setBytes(1, UUIDEncoding.toByteArray(player))
-            return stmtClearBlocks.executeUpdate()
+            return guardAction("clearBlocks", "player" to player) {
+                logger.info("Action: clearBlocks player: {}", player)
+                stmtClearBlocks.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtClearBlocks.executeUpdate()
+            }
         }
 
         override fun getPlayer(player: UUID): Actions.PlayerRecord? {
-            assertOpenAndOnThread()
-            logger.info("Action: getPlayer player: {}", player)
-            stmtGetPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtGetPlayer.executeQuery().use { rs ->
-                return if (rs.next()) {
-                    Actions.PlayerRecord(
-                        UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                        rs.getString(2),
-                        rs.getString(3),
-                        rs.getInt(4)
-                    )
-                } else null
+            return guardAction("getPlayer", "player" to player) {
+                stmtGetPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtGetPlayer.executeQuery().use { rs ->
+                    if (rs.next()) {
+                        Actions.PlayerRecord(
+                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                            rs.getString(2),
+                            rs.getString(3),
+                            rs.getInt(4)
+                        )
+                    } else null
+                }
             }
         }
-        override fun getPlayer(name: String): Actions.PlayerRecord? {
-            assertOpenAndOnThread()
-            logger.info("Action: getPlayer name: {}", name)
-            stmtGetPlayerByName.setString(1, name)
-            stmtGetPlayerByName.executeQuery().use { rs ->
-                return if (rs.next()) {
-                    Actions.PlayerRecord(
-                        UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                        rs.getString(2),
-                        rs.getString(3),
-                        rs.getInt(4)
-                    )
-                } else null
+        override fun getPlayerByName(name: String): Actions.PlayerRecord? {
+            return guardAction("getPlayerByName", "name" to name) {
+                stmtGetPlayerByName.setString(1, name)
+                stmtGetPlayerByName.executeQuery().use { rs ->
+                    if (rs.next()) {
+                        Actions.PlayerRecord(
+                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                            rs.getString(2),
+                            rs.getString(3),
+                            rs.getInt(4)
+                        )
+                    } else null
+                }
             }
         }
         override fun setPlayer(record: Actions.PlayerRecord): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: setPlayer record: {}", record)
-            stmtSetPlayer.setBytes(1, UUIDEncoding.toByteArray(record.player))
-            stmtSetPlayer.setString(2, record.stand)
-            stmtSetPlayer.setInt(3, record.level)
-            return stmtSetPlayer.executeUpdate() > 0
+            return guardAction("setPlayer", "record" to record) {
+                stmtSetPlayer.setBytes(1, UUIDEncoding.toByteArray(record.player))
+                stmtSetPlayer.setString(2, record.stand)
+                stmtSetPlayer.setInt(3, record.level)
+                stmtSetPlayer.executeUpdate() > 0
+            }
         }
 
         override fun addPlayer(player: UUID, name: String): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: addPlayer player: {}, name: {}", player, name)
-            stmtAddPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtAddPlayer.setString(2, name)
-            return stmtAddPlayer.executeUpdate() > 0
+            return guardAction("addPlayer", "player" to player, "name" to name) {
+                stmtAddPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtAddPlayer.setString(2, name)
+                stmtAddPlayer.executeUpdate() > 0
+            }
         }
 
         override fun getPlayerStand(player: UUID): String? {
-            assertOpenAndOnThread()
-            logger.info("Action: getPlayerStand player: {}", player)
-            stmtGetPlayerStand.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtGetPlayerStand.executeQuery().use { rs ->
-                return if (rs.next()) rs.getString(1) else null
+            return guardAction("getPlayerStand", "player" to player) {
+                stmtGetPlayerStand.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtGetPlayerStand.executeQuery().use { rs ->
+                    if (rs.next()) rs.getString(1) else null
+                }
             }
         }
         override fun setPlayerStand(player: UUID, stand: String): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: setPlayerStand player: {}, stand: {}", player, stand)
-            stmtSetPlayerStand.setString(1, stand)
-            stmtSetPlayerStand.setBytes(2, UUIDEncoding.toByteArray(player))
-            return stmtSetPlayerStand.executeUpdate() > 0
+            return guardAction("setPlayerStand", "player" to player, "stand" to stand) {
+                stmtSetPlayerStand.setString(1, stand)
+                stmtSetPlayerStand.setBytes(2, UUIDEncoding.toByteArray(player))
+                stmtSetPlayerStand.executeUpdate() > 0
+            }
         }
 
         override fun getPlayerLevel(player: UUID): Int? {
-            assertOpenAndOnThread()
-            logger.info("Action: getPlayerLevel player: {}", player)
-            stmtGetPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
-            stmtGetPlayerLevel.executeQuery().use { rs ->
-                return if (rs.next()) rs.getInt(1) else null
+            return guardAction("getPlayerLevel", "player" to player) {
+                stmtGetPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtGetPlayerLevel.executeQuery().use { rs ->
+                    if (rs.next()) rs.getInt(1) else null
+                }
             }
         }
         override fun setPlayerLevel(player: UUID, level: Int): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: setPlayerLevel player: {}, level: {}", player, level)
-            stmtSetPlayerLevel.setInt(1, level)
-            stmtSetPlayerLevel.setBytes(2, UUIDEncoding.toByteArray(player))
-            return stmtSetPlayerLevel.executeUpdate() > 0
+            return guardAction("setPlayerLevel", "player" to player, "level" to level) {
+                stmtSetPlayerLevel.setInt(1, level)
+                stmtSetPlayerLevel.setBytes(2, UUIDEncoding.toByteArray(player))
+                stmtSetPlayerLevel.executeUpdate() > 0
+            }
         }
 
         override fun incrementPlayerLevel(player: UUID): Boolean {
-            assertOpenAndOnThread()
-            logger.info("Action: incrementPlayerLevel player: {}", player)
-            stmtIncrementPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
-            return stmtSetPlayerStand.executeUpdate() > 0
+            return guardAction("incrementPlayerLevel", "player" to player) {
+                stmtIncrementPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtIncrementPlayerLevel.executeUpdate() > 0
+            }
         }
 
     }
 
     fun <T> perform(block: (Connection, Actions) -> T): Promise<T> {
-        return execute { block(conn, actions) }
+        val serverThreadFuture = CompletableFuture<T>()
+        val databaseThreadPromise = execute { block(conn, actions) }
+        databaseThreadPromise
+            .finally(executor = Promise.serverExecutor) { value, cause ->
+                if (cause == null) serverThreadFuture.complete(value)
+                else serverThreadFuture.completeExceptionally(cause)
+            }
+        return Promise(serverThreadFuture)
     }
 
     fun connect(): Promise<Unit> {
@@ -377,7 +403,7 @@ object DB : AutoCloseable {
                 fun stmt(sql: String) = conn.prepareStatement(sql)
 
                 stmtListBlocks =
-                    stmt("SELECT player, block, time_added, time_used FROM blocks ORDER BY time_used")
+                    stmt("SELECT player, block, time_added, time_used FROM blocks ORDER BY time_used DESC")
                 stmtListBlocksByPlayer =
                     stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? ORDER BY time_used")
                 stmtGetBlock =

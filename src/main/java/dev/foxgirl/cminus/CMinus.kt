@@ -3,6 +3,8 @@ package dev.foxgirl.cminus
 import com.google.common.collect.ImmutableSet
 import dev.foxgirl.cminus.util.Promise
 import dev.foxgirl.cminus.util.asList
+import dev.foxgirl.cminus.util.particles
+import dev.foxgirl.cminus.util.play
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents
@@ -10,6 +12,8 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback
 import net.fabricmc.fabric.api.event.player.UseBlockCallback
+import net.fabricmc.fabric.api.networking.v1.PacketSender
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.block.Block
 import net.minecraft.block.Blocks
 import net.minecraft.entity.Entity
@@ -19,11 +23,15 @@ import net.minecraft.entity.player.PlayerEntity
 import net.minecraft.item.Item
 import net.minecraft.item.ItemStack
 import net.minecraft.network.packet.Packet
+import net.minecraft.particle.ParticleTypes
 import net.minecraft.registry.Registries
-import net.minecraft.scoreboard.AbstractTeam
+import net.minecraft.scoreboard.*
 import net.minecraft.server.MinecraftServer
+import net.minecraft.server.network.ServerPlayNetworkHandler
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.server.world.ServerWorld
+import net.minecraft.sound.SoundEvents
+import net.minecraft.text.ClickEvent
 import net.minecraft.text.Text
 import net.minecraft.util.ActionResult
 import net.minecraft.util.Formatting
@@ -35,6 +43,7 @@ import net.minecraft.util.math.Direction
 import net.minecraft.world.GameMode
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import kotlin.random.Random
 
 val logger: Logger = LogManager.getLogger("CMinus")
 
@@ -48,6 +57,8 @@ fun init() {
     CommandRegistrationCallback.EVENT.register(::onCommandRegistration)
 
     ServerEntityEvents.ENTITY_LOAD.register(::handleEntityLoad)
+
+    ServerPlayConnectionEvents.JOIN.register(::handleServerJoin)
 
     ServerPlayerEvents.ALLOW_DEATH.register(::handlePlayerDeath)
     ServerPlayerEvents.AFTER_RESPAWN.register(::handlePlayerRespawn)
@@ -82,11 +93,25 @@ val bannedBlocks: Set<Block> = ImmutableSet.of(
     Blocks.DEEPSLATE_EMERALD_ORE,
 )
 
+lateinit var scoreboard: Scoreboard
+lateinit var scoreboardLevelObjective: ScoreboardObjective
+
+class DelayedTask(var ticks: Int, val runnable: Runnable)
+val delayedTasks = mutableListOf<DelayedTask>()
+
+fun delay(ticks: Int, runnable: Runnable) {
+    delayedTasks.add(DelayedTask(ticks, runnable))
+}
+
 fun isInGameMode(player: PlayerEntity?): Boolean {
     return player != null && (player as ServerPlayerEntity).interactionManager.gameMode === GameMode.SURVIVAL
 }
 fun isFlying(player: PlayerEntity?): Boolean {
     return player != null && player.abilities.flying
+}
+
+fun getPlayerLevel(player: PlayerEntity): Int {
+    return player.properties.knownLevel.coerceAtLeast(1) + 10
 }
 
 fun getItemID(item: Item): Identifier = Registries.ITEM.getId(item)
@@ -105,7 +130,7 @@ fun <T> tryBlock(item: Item, consumer: (Identifier, Block) -> T?): T? {
 
 fun onStart() {
 
-    val scoreboard = server.scoreboard
+    scoreboard = server.scoreboard
 
     val team = scoreboard.addTeam("cminus")
     team.displayName = Text.of("CMinus")
@@ -113,11 +138,32 @@ fun onStart() {
     team.setFriendlyFireAllowed(true)
     team.setShowFriendlyInvisibles(true)
 
+    val objective = scoreboard.getNullableObjective("cminus_level")
+    if (objective != null) {
+        scoreboard.removeObjective(objective)
+    }
+    scoreboardLevelObjective = scoreboard.addObjective(
+        "cminus_level",
+        ScoreboardCriterion.DUMMY,
+        Text.of("Lv"),
+        ScoreboardCriterion.RenderType.INTEGER,
+        true, null
+    )
+    scoreboard.setObjectiveSlot(ScoreboardDisplaySlot.BELOW_NAME, scoreboardLevelObjective)
+
 }
 
 fun onTick() {
 
     for (player in server.playerManager.playerList) onTickPlayer(player)
+
+    for (task in delayedTasks.toTypedArray()) {
+        if (task.ticks <= 0) {
+            task.runnable.run()
+            delayedTasks.remove(task)
+        }
+    }
+    for (task in delayedTasks) task.ticks--
 
 }
 
@@ -141,24 +187,25 @@ fun onTickPlayer(player: ServerPlayerEntity) {
         if (player.air < 0) player.air = 0
 
         if (player.scoreboardTeam?.name != "cminus") {
-            val team = server.scoreboard.getTeam("cminus")
-            if (team != null) {
-                server.scoreboard.addScoreHolderToTeam(player.nameForScoreboard, team)
+            val team = scoreboard.getTeam("cminus")
+            if (team != null) scoreboard.addScoreHolderToTeam(player.nameForScoreboard, team)
+        }
+
+        scoreboard.getOrCreateScore(player, scoreboardLevelObjective).score = getPlayerLevel(player)
+
+        if (player.isAlive) {
+            val standKind = try {
+                StandKind.valueOf(player.properties.knownStand)
+            } catch (cause: IllegalArgumentException) {
+                StandKind.VILLAGER
             }
-        }
-
-        val standKind = try {
-            StandKind.valueOf(player.properties.knownStand)
-        } catch (cause: IllegalArgumentException) {
-            StandKind.VILLAGER
-        }
-
-        val oldStandEntity = player.properties.standEntity
-        if (oldStandEntity == null || oldStandEntity.isRemoved || oldStandEntity.kind != standKind) {
-            oldStandEntity?.remove(Entity.RemovalReason.KILLED)
-            val newStandEntity = StandEntity(player, standKind, player.world)
-            player.world.spawnEntity(newStandEntity)
-            player.properties.standEntity = newStandEntity
+            val oldStandEntity = player.properties.standEntity
+            if (oldStandEntity == null || oldStandEntity.isRemoved || oldStandEntity.kind !== standKind) {
+                oldStandEntity?.remove(Entity.RemovalReason.KILLED)
+                val newStandEntity = StandEntity(player, standKind, player.world)
+                player.world.spawnEntity(newStandEntity)
+                player.properties.standEntity = newStandEntity
+            }
         }
 
     } else {
@@ -182,14 +229,13 @@ fun handlePacket(player: ServerPlayerEntity, packet: Packet<*>): Packet<*>? {
 fun setupPlayer(player: ServerPlayerEntity) {
 
     Promise(Unit)
-        .thenCompose(executor = null) { DB.perform { conn, actions -> actions.addPlayer(player.uuid, player.nameForScoreboard) } }
+        .thenCompose { DB.perform { conn, actions -> actions.addPlayer(player.uuid, player.nameForScoreboard) } }
         .then { isNewPlayer ->
             if (isNewPlayer) {
                 logger.info("Player {} joined the game for the first time", player.nameForScoreboard)
-                player.sendMessage(Text.literal("Welcome to the Creative- server, ").append(player.displayName).append("!"))
             }
         }
-        .thenCompose(executor = null) { DB.perform { conn, action -> action.getPlayer(player.uuid) } }
+        .thenCompose { DB.perform { conn, action -> action.getPlayer(player.uuid) } }
         .then { record ->
             if (record == null) {
                 logger.warn("Player {} was not found in the database after being added?", player.nameForScoreboard)
@@ -228,6 +274,19 @@ fun handleEntityLoad(entity: Entity, world: ServerWorld) {
             entity.remove(Entity.RemovalReason.KILLED)
         }
     }
+
+}
+
+fun handleServerJoin(handler: ServerPlayNetworkHandler, sender: PacketSender, server: MinecraftServer) {
+
+    val player = handler.player
+    player.sendMessage(Text.literal("Welcome to the Creative- server, ").append(player.displayName).append("!"))
+    player.sendMessage(Text.literal("You can use ").append(Text.literal("/spectre").formatted(Formatting.GREEN)).append(" to choose your spectre"))
+    player.sendMessage(Text.literal("Join the Discord: ").append(Text.literal("https://discord.gg/55zJX4PP6v").styled {
+        it
+            .withColor(Formatting.GREEN)
+            .withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://discord.gg/55zJX4PP6v"))
+    }))
 
 }
 
@@ -273,7 +332,10 @@ fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: H
     if (!isInGameMode(player)) return ActionResult.PASS
 
     tryBlock(player.getStackInHand(hand)) { id, block ->
-        DB.perform { conn, actions -> actions.useBlock(player.uuid, id.toString()) }
+        if (player.properties.lastUsedBlock !== block) {
+            player.properties.lastUsedBlock = block
+            DB.perform { conn, actions -> actions.useBlock(player.uuid, id.toString()) }
+        }
     }
 
     return ActionResult.PASS
@@ -283,6 +345,25 @@ fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: H
 fun handlePlayerAttackBlock(player: ServerPlayerEntity, world: ServerWorld, hand: Hand, pos: BlockPos, direction: Direction): ActionResult {
 
     return ActionResult.PASS
+
+}
+
+fun handlePlayerAttackAndDamageEntity(player: ServerPlayerEntity, entity: Entity, source: DamageSource, amount: Float) {
+
+    if (!isInGameMode(player)) return
+
+    delay(12) {
+        if (entity.isAlive) {
+            val success = entity.damage(source, amount * (getPlayerLevel(player).toFloat() / 10.0F))
+            if (success) {
+                val standEntity = player.properties.standEntity
+                if (standEntity != null) {
+                    standEntity.play(SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, pitch = Random.nextDouble(0.8, 1.2))
+                    standEntity.particles(ParticleTypes.CRIT, speed = 0.5, count = 10)
+                }
+            }
+        }
+    }
 
 }
 

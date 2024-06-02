@@ -44,7 +44,7 @@ public abstract class MixinServerPlayerInteractionManager {
     }
     @Unique
     private boolean shouldBreakNow() {
-        if (tickCounter - startMiningTime >= 4) return true;
+        if (tickCounter - startMiningTime >= 2) return true;
         if (tickCounter - lastFastBreakingTime > 8) return true;
         return false;
     }

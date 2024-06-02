@@ -2,6 +2,7 @@ package dev.foxgirl.cminus
 
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import net.minecraft.block.Block
+import net.minecraft.block.Blocks
 import net.minecraft.entity.player.PlayerEntity
 
 class PlayerProperties {
@@ -12,6 +13,8 @@ class PlayerProperties {
     var knownLevel: Int = 0
 
     var standEntity: StandEntity? = null
+
+    var lastUsedBlock: Block = Blocks.AIR
 
 }
 

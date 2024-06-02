@@ -21,7 +21,16 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
         }
     })
 
-    dispatcher.register(literal("stand").also {
+    dispatcher.register(literal("spectre").also {
+        it.executes { ctx ->
+            val player = ctx.source.entity as? ServerPlayerEntity
+            if (player != null) {
+                player.sendMessage(Text.literal("Use this command to change your spectre, like ").append(Text.literal("/spectre <mob>").formatted(Formatting.GREEN)))
+                return@executes 1
+            } else {
+                return@executes 0
+            }
+        }
         for (kind in StandKind.entries) {
             it.then(literal(kind.name.lowercase()).executes { ctx ->
                 val player = ctx.source.entity as? ServerPlayerEntity
@@ -34,7 +43,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                             player.properties.knownStand = kind.name
 
                             logger.info("Player {} has set their stand kind to {}", player.nameForScoreboard, kind.name)
-                            player.sendMessage(Text.literal("You have set your stand kind to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
+                            player.sendMessage(Text.literal("You have set your spectre to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
                         }
                     return@executes 1
                 } else {
