@@ -318,8 +318,9 @@ object DB : AutoCloseable {
         override fun setPlayer(record: Actions.PlayerRecord): Boolean {
             return guardAction("setPlayer", "record" to record) {
                 stmtSetPlayer.setBytes(1, UUIDEncoding.toByteArray(record.player))
-                stmtSetPlayer.setString(2, record.stand)
-                stmtSetPlayer.setInt(3, record.level)
+                stmtSetPlayer.setString(2, record.name)
+                stmtSetPlayer.setString(3, record.stand)
+                stmtSetPlayer.setInt(4, record.level)
                 stmtSetPlayer.executeUpdate() > 0
             }
         }

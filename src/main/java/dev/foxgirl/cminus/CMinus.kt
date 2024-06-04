@@ -140,6 +140,10 @@ fun setupPlayer(player: ServerPlayerEntity) {
             logger.warn("Player {} was not found in the database after being added?", player.nameForScoreboard)
         } else {
             var wasUpdated = false
+            if (record.name != player.nameForScoreboard) {
+                record = record.copy(name = player.nameForScoreboard)
+                wasUpdated = true
+            }
             if (record.stand.isEmpty()) {
                 record = record.copy(stand = StandKind.VILLAGER.name)
                 wasUpdated = true
@@ -338,10 +342,6 @@ fun handlePlayerDeath(player: ServerPlayerEntity, source: DamageSource, amount: 
 }
 
 fun handlePlayerRespawn(oldPlayer: ServerPlayerEntity, newPlayer: ServerPlayerEntity, isOldPlayerAlive: Boolean) {
-
-    if (!isInGameMode(newPlayer)) return
-
-    setupPlayer(newPlayer)
 
 }
 

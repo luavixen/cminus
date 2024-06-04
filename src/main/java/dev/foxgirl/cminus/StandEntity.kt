@@ -9,6 +9,8 @@ import net.minecraft.entity.LivingEntity
 import net.minecraft.entity.MovementType
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.data.DataTracker
+import net.minecraft.entity.effect.StatusEffectInstance
+import net.minecraft.entity.effect.StatusEffects
 import net.minecraft.entity.passive.*
 import net.minecraft.entity.player.PlayerEntity
 import net.minecraft.item.ItemStack
@@ -110,7 +112,6 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
 
     init {
         setInvulnerable(true)
-        setInvisible(true)
         setSilent(true)
 
         setNoGravity(true)
@@ -119,6 +120,8 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
 
         val pos = calculatePosition()
         refreshPositionAndAngles(pos.x, pos.y, pos.z, owner.yaw, owner.pitch)
+
+        addStatusEffect(StatusEffectInstance(StatusEffects.INVISIBILITY, Int.MAX_VALUE, 0, false, false, false))
 
         val team = scoreboard.getTeam("cminus")
         if (team != null) {
@@ -138,12 +141,17 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
                 owner.properties.standEntity = null
             }
             remove(RemovalReason.KILLED)
+            return
         }
 
         if (!owner.isSneaking && owner !== customer && owner.uuid !in interactionsInProgress) {
             setPosition(calculatePosition())
             setRotation(owner.yaw, 0.0F)
             setVelocity(0.0, 0.0, 0.0)
+        }
+
+        if (!hasStatusEffect(StatusEffects.INVISIBILITY)) {
+            addStatusEffect(StatusEffectInstance(StatusEffects.INVISIBILITY, Int.MAX_VALUE, 0, false, false, false))
         }
     }
 
