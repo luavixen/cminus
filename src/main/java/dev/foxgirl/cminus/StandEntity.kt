@@ -191,15 +191,16 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         } else {
             logger.info("Player {} traded with {}'s stand entity", customer.nameForScoreboard, owner.nameForScoreboard)
 
-            val soldStack = offer.sellItem
-            val soldBlock = getBlock(soldStack)
-            val soldBlockText = soldBlock.name.copy().formatted(Formatting.GREEN)
+            val stack = offer.sellItem
+            val block = getBlock(stack)
+            val blockText = block.name.copy().formatted(Formatting.GREEN)
 
-            if (owner === customer) {
-                owner.sendMessage(Text.empty().append("You bought ").append(soldBlockText).append(" from your spectre"))
+            if (owner !== customer) {
+                owner.sendMessage(Text.empty().append(customer.displayName).append(" bought ").append(blockText).append(" from your spectre"))
+                customer.sendMessage(Text.empty().append("You bought ").append(blockText).append(" from ").append(owner.displayName).append("'s spectre"))
             } else {
-                owner.sendMessage(Text.empty().append(customer.displayName).append(" bought ").append(soldBlockText).append(" from your spectre"))
-                customer.sendMessage(Text.empty().append("You bought ").append(soldBlockText).append(" from ").append(owner.displayName).append("'s spectre"))
+                owner.sendMessage(Text.empty().append("You bought ").append(blockText).append(" from your spectre"))
+                DB.perform { conn, actions -> actions.useBlock(owner.uuid, getBlockID(block).toString()) }
             }
         }
 
