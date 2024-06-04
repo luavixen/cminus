@@ -1,8 +1,6 @@
 package dev.foxgirl.cminus
 
-import dev.foxgirl.cminus.util.Promise
-import dev.foxgirl.cminus.util.particles
-import dev.foxgirl.cminus.util.play
+import dev.foxgirl.cminus.util.*
 import net.minecraft.entity.EntityType
 import net.minecraft.entity.EquipmentSlot
 import net.minecraft.entity.LivingEntity
@@ -62,7 +60,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     private fun updateOffersActual(): Promise<Unit> {
         return DB
             .perform { conn, actions ->
-                actions.listBlocks(owner.uuid)
+                actions.listBlocksByPlayer(owner.uuid)
             }
             .then { records ->
                 offers.clear()
@@ -131,6 +129,8 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         }
 
         kind.entityInitializer(this)
+
+        logger.debug("Initialized new stand entity for {} of kind {}", owner.nameForScoreboard, kind)
     }
 
     override fun tick() {
@@ -141,6 +141,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
                 owner.properties.standEntity = null
             }
             remove(RemovalReason.KILLED)
+            logger.debug("Removed stand entity for {}", owner.nameForScoreboard)
             return
         }
 
@@ -185,22 +186,23 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
             }
         }
 
+        val stack = offer.sellItem
+        val block = getBlock(stack)
+        val blockID = getBlockID(block)
+        val blockText = block.name.copy().formatted(Formatting.GREEN)
+
         val customer = customer
         if (customer == null) {
-            logger.warn("Player traded with {}'s stand entity, but no customer?", owner.nameForScoreboard)
+            logger.warn("Player traded with {}'s stand entity for {}, but no customer?", owner.nameForScoreboard, blockID)
         } else {
-            logger.info("Player {} traded with {}'s stand entity", customer.nameForScoreboard, owner.nameForScoreboard)
-
-            val stack = offer.sellItem
-            val block = getBlock(stack)
-            val blockText = block.name.copy().formatted(Formatting.GREEN)
+            logger.info("Player {} traded with {}'s stand entity for {}", customer.nameForScoreboard, owner.nameForScoreboard, blockID)
 
             if (owner !== customer) {
                 owner.sendMessage(Text.empty().append(customer.displayName).append(" bought ").append(blockText).append(" from your spectre"))
                 customer.sendMessage(Text.empty().append("You bought ").append(blockText).append(" from ").append(owner.displayName).append("'s spectre"))
             } else {
                 owner.sendMessage(Text.empty().append("You bought ").append(blockText).append(" from your spectre"))
-                DB.perform { conn, actions -> actions.useBlock(owner.uuid, getBlockID(block).toString()) }
+                DB.perform { conn, actions -> actions.useBlock(owner.uuid, blockID.toString()) }
             }
         }
 

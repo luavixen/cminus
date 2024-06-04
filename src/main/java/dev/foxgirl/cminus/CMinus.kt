@@ -1,9 +1,7 @@
 package dev.foxgirl.cminus
 
 import com.google.common.collect.ImmutableSet
-import dev.foxgirl.cminus.util.asList
-import dev.foxgirl.cminus.util.particles
-import dev.foxgirl.cminus.util.play
+import dev.foxgirl.cminus.util.*
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents
@@ -23,7 +21,6 @@ import net.minecraft.item.Item
 import net.minecraft.item.ItemStack
 import net.minecraft.network.packet.Packet
 import net.minecraft.particle.ParticleTypes
-import net.minecraft.registry.Registries
 import net.minecraft.scoreboard.*
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayNetworkHandler
@@ -114,13 +111,6 @@ fun getPlayerLevel(player: PlayerEntity): Int {
     return player.properties.knownLevel.coerceAtLeast(1) + 10
 }
 
-fun getItemID(item: Item): Identifier = Registries.ITEM.getId(item)
-fun getBlockID(block: Block): Identifier = Registries.BLOCK.getId(block)
-
-fun getBlock(stack: ItemStack): Block = getBlock(stack.item)
-fun getBlock(item: Item): Block = getBlock(getItemID(item))
-fun getBlock(id: Identifier): Block = Registries.BLOCK.get(id)
-
 fun <T> tryBlock(stack: ItemStack, consumer: (Identifier, Block) -> T?): T? = tryBlock(stack.item, consumer)
 fun <T> tryBlock(item: Item, consumer: (Identifier, Block) -> T?): T? {
     val id = getItemID(item)
@@ -129,6 +119,8 @@ fun <T> tryBlock(item: Item, consumer: (Identifier, Block) -> T?): T? {
 }
 
 fun setupPlayer(player: ServerPlayerEntity) {
+
+    logger.info("Player {} is being set up", player.nameForScoreboard)
 
     DB.perform { conn, actions ->
         val isNewPlayer = actions.addPlayer(player.uuid, player.nameForScoreboard)
@@ -379,6 +371,9 @@ fun handlePlayerAttackAndDamageEntity(player: ServerPlayerEntity, entity: Entity
                     standEntity.play(SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, pitch = Random.nextDouble(0.8, 1.2))
                     standEntity.particles(ParticleTypes.CRIT, speed = 0.5, count = 10)
                 }
+                logger.info("Player {} stand entity attacked {}", player.nameForScoreboard, entity.displayName?.string)
+            } else {
+                logger.info("Player {} stand entity failed to attack {}", player.nameForScoreboard, entity.displayName?.string)
             }
         }
     }

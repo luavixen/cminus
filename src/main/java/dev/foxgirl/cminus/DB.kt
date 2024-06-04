@@ -2,6 +2,7 @@ package dev.foxgirl.cminus
 
 import dev.foxgirl.cminus.util.Promise
 import dev.foxgirl.cminus.util.UUIDEncoding
+import dev.foxgirl.cminus.util.lazyToString
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.sql.Connection
@@ -42,7 +43,7 @@ object DB : AutoCloseable {
         data class PlayerRecord(val player: UUID, val name: String, val stand: String, val level: Int)
 
         fun listBlocks(): List<BlockRecord>
-        fun listBlocks(player: UUID): List<BlockRecord>
+        fun listBlocksByPlayer(player: UUID): List<BlockRecord>
 
         fun listPlayers(): List<PlayerRecord>
 
@@ -111,22 +112,37 @@ object DB : AutoCloseable {
                 throw IllegalStateException("Database action $name failed, on wrong thread")
             }
 
-            val params = trimToMaxLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60)
+            val timeStarted: Long = System.nanoTime()
+            var timeFinished: Long = 0
 
-            val timeStarted = System.nanoTime()
-            fun timeTaken(): String {
-                return String.format("%.4f", (System.nanoTime() - timeStarted).toDouble() * 1E-6)
-            }
-
-            val result = try {
-                block()
+            val result: Result<T> = try {
+                Result.success(block())
             } catch (cause: Exception) {
-                logger.error("Action {}({}) failed in {}ms: {}", name, params, timeTaken(), cause.message ?: cause.javaClass.name)
-                throw cause
+                Result.failure(cause)
+            } finally {
+                timeFinished = System.nanoTime()
             }
 
-            logger.info("Action {}({}) done in {}ms: {}", name, params, timeTaken(), trimToMaxLength(result.toString(), 40))
-            return result
+            val timeTaken = timeFinished - timeStarted
+            val timeTakenToString = lazyToString { String.format("%.4f", timeTaken.toDouble() * 1E-6) }
+
+            val paramsToString = lazyToString { trimToMaxLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60) }
+            val resultToString = lazyToString { trimToMaxLength(result.fold({ it.toString() }, { it.message ?: it.javaClass.name }), 40) }
+
+            result.fold(
+                onSuccess = { value ->
+                    if (timeTaken >= 5_000_000L) {
+                        logger.info("Action {}({}) done in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
+                    } else {
+                        logger.debug("Action {}({}) done in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
+                    }
+                    return value
+                },
+                onFailure = { cause ->
+                    logger.error("Action {}({}) failed in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
+                    throw cause
+                }
+            )
         }
 
         private inline fun <T> collectResults(block: MutableList<T>.() -> Unit): MutableList<T> {
@@ -145,8 +161,8 @@ object DB : AutoCloseable {
                 }
             } }
         }
-        override fun listBlocks(player: UUID): List<Actions.BlockRecord> {
-            return guardAction("listBlocks", "player" to player) { collectResults {
+        override fun listBlocksByPlayer(player: UUID): List<Actions.BlockRecord> {
+            return guardAction("listBlocksByPlayer", "player" to player) { collectResults {
                 stmtListBlocksByPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
                 stmtListBlocksByPlayer.executeQuery().use { rs ->
                     while (rs.next()) add(Actions.BlockRecord(
@@ -414,9 +430,9 @@ object DB : AutoCloseable {
                 fun stmt(sql: String) = conn.prepareStatement(sql)
 
                 stmtListBlocks =
-                    stmt("SELECT player, block, time_added, time_used FROM blocks ORDER BY time_used ASC")
+                    stmt("SELECT player, block, time_added, time_used FROM blocks ORDER BY time_used DESC")
                 stmtListBlocksByPlayer =
-                    stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? ORDER BY time_used ASC")
+                    stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? ORDER BY time_used DESC")
                 stmtGetBlock =
                     stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? AND block = ?")
                 stmtSetBlock =
