@@ -3,6 +3,7 @@ package dev.foxgirl.cminus
 import dev.foxgirl.cminus.util.Promise
 import dev.foxgirl.cminus.util.UUIDEncoding
 import dev.foxgirl.cminus.util.lazyToString
+import dev.foxgirl.cminus.util.trimToLength
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.sql.Connection
@@ -98,10 +99,6 @@ object DB : AutoCloseable {
     private lateinit var stmtSetPlayerLevel: PreparedStatement
     private lateinit var stmtIncrementPlayerLevel: PreparedStatement
 
-    private fun trimToMaxLength(string: String, length: Int): String {
-        return if (string.length > length) string.substring(0, length - 1) + "\u2026" else string
-    }
-
     private val actions: Actions = object : Actions {
 
         private fun <T> guardAction(name: String, vararg params: Pair<String, *>, block: () -> T): T {
@@ -126,20 +123,20 @@ object DB : AutoCloseable {
             val timeTaken = timeFinished - timeStarted
             val timeTakenToString = lazyToString { String.format("%.4f", timeTaken.toDouble() * 1E-6) }
 
-            val paramsToString = lazyToString { trimToMaxLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60) }
-            val resultToString = lazyToString { trimToMaxLength(result.fold({ it.toString() }, { it.message ?: it.javaClass.name }), 40) }
+            val paramsToString = lazyToString { trimToLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60) }
+            val resultToString = lazyToString { trimToLength(result.fold({ it.toString() }, { it.message ?: it.javaClass.name }), 40) }
 
             result.fold(
                 onSuccess = { value ->
-                    if (timeTaken >= 5_000_000L) {
-                        logger.info("Action {}({}) done in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
+                    if (timeTaken >= 8_000_000L) {
+                        logger.info("Action {}({}) done in {}ms(!): {}", name, paramsToString, timeTakenToString, resultToString)
                     } else {
-                        logger.debug("Action {}({}) done in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
+                        // logger.debug("Action {}({}) done in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
                     }
                     return value
                 },
                 onFailure = { cause ->
-                    logger.error("Action {}({}) failed in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
+                    logger.error("Action {}({}) failed(!) in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
                     throw cause
                 }
             )
