@@ -17,6 +17,7 @@ class FakeDataTrackerEntry(id: Int)
     override fun isDirty(): Boolean {
         return false
     }
+
     override fun isUnchanged(): Boolean {
         return true
     }

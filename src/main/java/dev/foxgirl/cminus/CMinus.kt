@@ -1,7 +1,6 @@
 package dev.foxgirl.cminus
 
 import com.google.common.collect.ImmutableSet
-import dev.foxgirl.cminus.util.Promise
 import dev.foxgirl.cminus.util.asList
 import dev.foxgirl.cminus.util.particles
 import dev.foxgirl.cminus.util.play
@@ -62,6 +61,7 @@ fun init() {
 
     ServerPlayerEvents.ALLOW_DEATH.register(::handlePlayerDeath)
     ServerPlayerEvents.AFTER_RESPAWN.register(::handlePlayerRespawn)
+
     UseBlockCallback.EVENT.register { player, world, hand, hit ->
         handlePlayerUseBlock(player as ServerPlayerEntity, world as ServerWorld, hand, hit)
     }
@@ -128,11 +128,73 @@ fun <T> tryBlock(item: Item, consumer: (Identifier, Block) -> T?): T? {
     return if (block !== Blocks.AIR && block !in bannedBlocks) consumer(id, block) else null
 }
 
+fun setupPlayer(player: ServerPlayerEntity) {
+
+    DB.perform { conn, actions ->
+        val isNewPlayer = actions.addPlayer(player.uuid, player.nameForScoreboard)
+        if (isNewPlayer) {
+            logger.info("Player {} joined the game for the first time", player.nameForScoreboard)
+        }
+        var record = actions.getPlayer(player.uuid)
+        if (record == null) {
+            logger.warn("Player {} was not found in the database after being added?", player.nameForScoreboard)
+        } else {
+            var wasUpdated = false
+            if (record.stand.isEmpty()) {
+                record = record.copy(stand = StandKind.VILLAGER.name)
+                wasUpdated = true
+            }
+            if (record.level <= 0) {
+                record = record.copy(level = 1)
+                wasUpdated = true
+            }
+            if (wasUpdated) {
+                actions.setPlayer(record)
+            }
+        }
+        record
+    }.then { record ->
+        if (record != null) {
+            player.properties.knownStand = record.stand
+            player.properties.knownLevel = record.level
+        }
+    }
+
+    val uuid = player.uuid
+    val blocks = player.inventory.asList().mapNotNull {
+        tryBlock(it) { id, block ->
+            if (player.properties.knownOwnedBlocks.add(block)) id.toString() else null
+        }
+    }
+    if (blocks.isNotEmpty()) {
+        DB.perform { conn, actions ->
+            val newDiscoveryCount = actions.addBlocks(uuid, blocks)
+            if (newDiscoveryCount > 0) {
+                logger.info("Player {} discovered {} new blocks during setup", player.nameForScoreboard, newDiscoveryCount)
+            }
+        }
+    }
+
+}
+
+fun setupPlayers() {
+
+    delay(20, ::setupPlayers)
+
+    for (player in server.playerManager.playerList) {
+        val properties = player.properties
+        if (properties.knownStand.isEmpty() || properties.knownLevel <= 0) {
+            setupPlayer(player)
+        }
+    }
+
+}
+
 fun onStart() {
 
     scoreboard = server.scoreboard
 
-    val team = scoreboard.addTeam("cminus")
+    val team = scoreboard.getTeam("cminus") ?: scoreboard.addTeam("cminus")
     team.displayName = Text.of("CMinus")
     team.collisionRule = AbstractTeam.CollisionRule.NEVER
     team.setFriendlyFireAllowed(true)
@@ -150,6 +212,8 @@ fun onStart() {
         true, null
     )
     scoreboard.setObjectiveSlot(ScoreboardDisplaySlot.BELOW_NAME, scoreboardLevelObjective)
+
+    setupPlayers()
 
 }
 
@@ -169,22 +233,38 @@ fun onTick() {
 
 fun onTickPlayer(player: ServerPlayerEntity) {
 
-    if (isInGameMode(player)) {
+    if (!isInGameMode(player)) return
 
-        player.abilities.apply {
-            if (player.hungerManager.foodLevel <= 0) {
-                if (allowFlying || flying) {
-                    allowFlying = false
-                    flying = false
-                    player.sendAbilitiesUpdate()
-                }
-            } else if (!allowFlying) {
-                allowFlying = true
+    player.abilities.apply {
+        if (player.hungerManager.foodLevel <= 0) {
+            if (allowFlying || flying) {
+                allowFlying = false
+                flying = false
                 player.sendAbilitiesUpdate()
             }
+        } else if (!allowFlying) {
+            allowFlying = true
+            player.sendAbilitiesUpdate()
+        }
+    }
+
+    if (player.air < 0) player.air = 0
+
+    if (player.isAlive && player.properties.knownStand.isNotEmpty() && player.properties.knownLevel > 0) {
+
+        val standKind = try {
+            StandKind.valueOf(player.properties.knownStand)
+        } catch (ignored: IllegalArgumentException) {
+            StandKind.VILLAGER
         }
 
-        if (player.air < 0) player.air = 0
+        val oldStandEntity = player.properties.standEntity
+        if (oldStandEntity == null || oldStandEntity.isRemoved || oldStandEntity.kind !== standKind) {
+            oldStandEntity?.remove(Entity.RemovalReason.KILLED)
+            val newStandEntity = StandEntity(player, standKind, player.world)
+            player.world.spawnEntity(newStandEntity)
+            player.properties.standEntity = newStandEntity
+        }
 
         if (player.scoreboardTeam?.name != "cminus") {
             val team = scoreboard.getTeam("cminus")
@@ -193,29 +273,6 @@ fun onTickPlayer(player: ServerPlayerEntity) {
 
         scoreboard.getOrCreateScore(player, scoreboardLevelObjective).score = getPlayerLevel(player)
 
-        if (player.isAlive) {
-            val standKind = try {
-                StandKind.valueOf(player.properties.knownStand)
-            } catch (cause: IllegalArgumentException) {
-                StandKind.VILLAGER
-            }
-            val oldStandEntity = player.properties.standEntity
-            if (oldStandEntity == null || oldStandEntity.isRemoved || oldStandEntity.kind !== standKind) {
-                oldStandEntity?.remove(Entity.RemovalReason.KILLED)
-                val newStandEntity = StandEntity(player, standKind, player.world)
-                player.world.spawnEntity(newStandEntity)
-                player.properties.standEntity = newStandEntity
-            }
-        }
-
-    } else {
-
-        val standEntity = player.properties.standEntity
-        if (standEntity != null) {
-            standEntity.remove(Entity.RemovalReason.KILLED)
-            player.properties.standEntity = null
-        }
-
     }
 
 }
@@ -223,43 +280,6 @@ fun onTickPlayer(player: ServerPlayerEntity) {
 fun handlePacket(player: ServerPlayerEntity, packet: Packet<*>): Packet<*>? {
 
     return packet
-
-}
-
-fun setupPlayer(player: ServerPlayerEntity) {
-
-    Promise(Unit)
-        .thenCompose { DB.perform { conn, actions -> actions.addPlayer(player.uuid, player.nameForScoreboard) } }
-        .then { isNewPlayer ->
-            if (isNewPlayer) {
-                logger.info("Player {} joined the game for the first time", player.nameForScoreboard)
-            }
-        }
-        .thenCompose { DB.perform { conn, action -> action.getPlayer(player.uuid) } }
-        .then { record ->
-            if (record == null) {
-                logger.warn("Player {} was not found in the database after being added?", player.nameForScoreboard)
-            } else {
-                player.properties.knownStand = record.stand
-                player.properties.knownLevel = record.level
-            }
-        }
-
-    val uuid = player.uuid
-    val blocks = player.inventory.asList().mapNotNull {
-        tryBlock(it) { id, block ->
-            if (player.properties.knownOwnedBlocks.add(block)) id.toString() else null
-        }
-    }
-    if (blocks.isNotEmpty()) {
-        DB
-            .perform { conn, actions -> actions.addBlocks(uuid, blocks) }
-            .then { newDiscoveryCount ->
-                if (newDiscoveryCount > 0) {
-                    logger.info("Player {} discovered {} new blocks during setup", player.nameForScoreboard, newDiscoveryCount)
-                }
-            }
-    }
 
 }
 
@@ -283,9 +303,7 @@ fun handleServerJoin(handler: ServerPlayNetworkHandler, sender: PacketSender, se
     player.sendMessage(Text.literal("Welcome to the Creative- server, ").append(player.displayName).append("!"))
     player.sendMessage(Text.literal("You can use ").append(Text.literal("/spectre").formatted(Formatting.GREEN)).append(" to choose your spectre"))
     player.sendMessage(Text.literal("Join the Discord: ").append(Text.literal("https://discord.gg/55zJX4PP6v").styled {
-        it
-            .withColor(Formatting.GREEN)
-            .withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://discord.gg/55zJX4PP6v"))
+        it.withColor(Formatting.GREEN).withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://discord.gg/55zJX4PP6v"))
     }))
 
 }
@@ -373,14 +391,14 @@ fun handlePlayerInventoryAdd(player: ServerPlayerEntity, stack: ItemStack) {
 
     tryBlock(stack) { id, block ->
         if (player.properties.knownOwnedBlocks.add(block)) {
-            DB
-                .perform { conn, actions -> actions.addBlock(player.uuid, id.toString()) }
-                .then { isNewDiscovery ->
-                    if (isNewDiscovery) {
-                        logger.info("Player {} discovered {}", player.nameForScoreboard, id)
-                        player.sendMessage(Text.literal("You discovered ").append(block.name.copy().formatted(Formatting.GREEN)).append("!"))
-                    }
+            DB.perform { conn, actions ->
+                actions.addBlock(player.uuid, id.toString())
+            }.then { isNewDiscovery ->
+                if (isNewDiscovery) {
+                    logger.info("Player {} discovered {}", player.nameForScoreboard, id)
+                    player.sendMessage(Text.literal("You discovered ").append(block.name.copy().formatted(Formatting.GREEN)).append("!"))
                 }
+            }
         }
     }
 

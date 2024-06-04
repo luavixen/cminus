@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.random.Random
 
 object DB : AutoCloseable {
 
@@ -42,10 +41,10 @@ object DB : AutoCloseable {
         data class BlockRecord(val player: UUID, val block: String, val timeAdded: Instant, val timeUsed: Instant)
         data class PlayerRecord(val player: UUID, val name: String, val stand: String, val level: Int)
 
-        fun listBlocks(): Sequence<BlockRecord>
-        fun listBlocks(player: UUID): Sequence<BlockRecord>
+        fun listBlocks(): List<BlockRecord>
+        fun listBlocks(player: UUID): List<BlockRecord>
 
-        fun listPlayers(): Sequence<PlayerRecord>
+        fun listPlayers(): List<PlayerRecord>
 
         fun getBlock(player: UUID, block: String): BlockRecord?
         fun setBlock(record: BlockRecord): Boolean
@@ -63,6 +62,7 @@ object DB : AutoCloseable {
         fun clearBlocks(player: UUID): Int
 
         fun getPlayer(player: UUID): PlayerRecord?
+        fun getPlayers(players: Iterable<UUID>): List<PlayerRecord>
         fun getPlayerByName(name: String): PlayerRecord?
         fun setPlayer(record: PlayerRecord): Boolean
 
@@ -111,7 +111,6 @@ object DB : AutoCloseable {
                 throw IllegalStateException("Database action $name failed, on wrong thread")
             }
 
-            val id = String.format("%08x", Random.nextInt())
             val params = trimToMaxLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60)
 
             val timeStarted = System.nanoTime()
@@ -122,59 +121,55 @@ object DB : AutoCloseable {
             val result = try {
                 block()
             } catch (cause: Exception) {
-                logger.error("Action {}[{}] ({}) failed in {}ms: {}", name, id, params, timeTaken(), cause.message ?: cause.javaClass.name)
+                logger.error("Action {}({}) failed in {}ms: {}", name, params, timeTaken(), cause.message ?: cause.javaClass.name)
                 throw cause
             }
 
-            logger.info("Action {}[{}] ({}) done in {}ms: {}", name, id, params, timeTaken(), trimToMaxLength(result.toString(), 40))
+            logger.info("Action {}({}) done in {}ms: {}", name, params, timeTaken(), trimToMaxLength(result.toString(), 40))
             return result
         }
 
-        override fun listBlocks(): Sequence<Actions.BlockRecord> {
-            return guardAction("listBlocks") {
-                sequence {
-                    stmtListBlocks.executeQuery().use { rs ->
-                        while (rs.next()) {
-                            yield(Actions.BlockRecord(
-                                UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                                rs.getString(2),
-                                rs.getTimestamp(3).toInstant(),
-                                rs.getTimestamp(4).toInstant()
-                            ))
-                        }
-                    }
-                }
-            }
-        }
-        override fun listBlocks(player: UUID): Sequence<Actions.BlockRecord> {
-            return guardAction("listBlocks", "player" to player) {
-                sequence {
-                    stmtListBlocksByPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
-                    stmtListBlocksByPlayer.executeQuery().use { rs ->
-                        while (rs.next()) yield(Actions.BlockRecord(
-                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                            rs.getString(2),
-                            rs.getTimestamp(3).toInstant(),
-                            rs.getTimestamp(4).toInstant()
-                        ))
-                    }
-                }
-            }
+        private inline fun <T> collectResults(block: MutableList<T>.() -> Unit): MutableList<T> {
+            return mutableListOf<T>().apply(block)
         }
 
-        override fun listPlayers(): Sequence<Actions.PlayerRecord> {
-            return guardAction("listPlayers") {
-                sequence {
-                    stmtListPlayers.executeQuery().use { rs ->
-                        while (rs.next()) yield(Actions.PlayerRecord(
-                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
-                            rs.getString(2),
-                            rs.getString(3),
-                            rs.getInt(4)
-                        ))
-                    }
+        override fun listBlocks(): List<Actions.BlockRecord> {
+            return guardAction("listBlocks") { collectResults {
+                stmtListBlocks.executeQuery().use { rs ->
+                    while (rs.next()) add(Actions.BlockRecord(
+                        UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                        rs.getString(2),
+                        rs.getTimestamp(3).toInstant(),
+                        rs.getTimestamp(4).toInstant()
+                    ))
                 }
-            }
+            } }
+        }
+        override fun listBlocks(player: UUID): List<Actions.BlockRecord> {
+            return guardAction("listBlocks", "player" to player) { collectResults {
+                stmtListBlocksByPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtListBlocksByPlayer.executeQuery().use { rs ->
+                    while (rs.next()) add(Actions.BlockRecord(
+                        UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                        rs.getString(2),
+                        rs.getTimestamp(3).toInstant(),
+                        rs.getTimestamp(4).toInstant()
+                    ))
+                }
+            } }
+        }
+
+        override fun listPlayers(): List<Actions.PlayerRecord> {
+            return guardAction("listPlayers") { collectResults {
+                stmtListPlayers.executeQuery().use { rs ->
+                    while (rs.next()) add(Actions.PlayerRecord(
+                        UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                        rs.getString(2),
+                        rs.getString(3),
+                        rs.getInt(4)
+                    ))
+                }
+            } }
         }
 
         override fun getBlock(player: UUID, block: String): Actions.BlockRecord? {
@@ -290,6 +285,21 @@ object DB : AutoCloseable {
                 }
             }
         }
+        override fun getPlayers(players: Iterable<UUID>): List<Actions.PlayerRecord> {
+            return guardAction("getPlayers", "players" to players) { collectResults {
+                for (player in players) {
+                    stmtGetPlayer.setBytes(1, UUIDEncoding.toByteArray(player))
+                    stmtGetPlayer.executeQuery().use { rs ->
+                        if (rs.next()) add(Actions.PlayerRecord(
+                            UUIDEncoding.fromByteArray(rs.getBytes(1)),
+                            rs.getString(2),
+                            rs.getString(3),
+                            rs.getInt(4)
+                        ))
+                    }
+                }
+            } }
+        }
         override fun getPlayerByName(name: String): Actions.PlayerRecord? {
             return guardAction("getPlayerByName", "name" to name) {
                 stmtGetPlayerByName.setString(1, name)
@@ -393,7 +403,7 @@ object DB : AutoCloseable {
                         CREATE INDEX IF NOT EXISTS blocks_idx_player ON blocks (player);
                         CREATE TABLE IF NOT EXISTS players (
                             player BINARY(16) PRIMARY KEY, name TEXT,
-                            stand TEXT DEFAULT '',
+                            stand TEXT DEFAULT 'VILLAGER',
                             level INT DEFAULT 1
                         );
                         CREATE INDEX IF NOT EXISTS players_idx_name ON players (name);
@@ -403,9 +413,9 @@ object DB : AutoCloseable {
                 fun stmt(sql: String) = conn.prepareStatement(sql)
 
                 stmtListBlocks =
-                    stmt("SELECT player, block, time_added, time_used FROM blocks ORDER BY time_used DESC")
+                    stmt("SELECT player, block, time_added, time_used FROM blocks ORDER BY time_used ASC")
                 stmtListBlocksByPlayer =
-                    stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? ORDER BY time_used")
+                    stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? ORDER BY time_used ASC")
                 stmtGetBlock =
                     stmt("SELECT player, block, time_added, time_used FROM blocks WHERE player = ? AND block = ?")
                 stmtSetBlock =

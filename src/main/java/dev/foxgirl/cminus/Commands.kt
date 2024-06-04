@@ -68,6 +68,8 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                     standEntity.trade(offer)
                     player.incrementStat(Stats.TRADED_WITH_VILLAGER)
                     player.give(offer.sellItem.copy())
+                }.finally { _, _ ->
+                    standEntity.resetCustomer()
                 }
             }
 
@@ -89,16 +91,14 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
             it.then(literal(kind.name.lowercase()).executes { ctx ->
                 val player = ctx.source.entity as? ServerPlayerEntity
                 if (player != null) {
-                    DB
-                        .perform { conn, actions ->
-                            actions.setPlayerStand(player.uuid, kind.name)
-                        }
-                        .then {
-                            player.properties.knownStand = kind.name
+                    DB.perform { conn, actions ->
+                        actions.setPlayerStand(player.uuid, kind.name)
+                    }.then {
+                        player.properties.knownStand = kind.name
 
-                            logger.info("Player {} has set their stand kind to {}", player.nameForScoreboard, kind.name)
-                            player.sendMessage(Text.literal("You have set your spectre to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
-                        }
+                        logger.info("Player {} has set their stand kind to {}", player.nameForScoreboard, kind.name)
+                        player.sendMessage(Text.literal("You have set your spectre to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
+                    }
                     return@executes 1
                 } else {
                     return@executes 0

@@ -9,8 +9,6 @@ import net.minecraft.entity.LivingEntity
 import net.minecraft.entity.MovementType
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.data.DataTracker
-import net.minecraft.entity.effect.StatusEffectInstance
-import net.minecraft.entity.effect.StatusEffects
 import net.minecraft.entity.passive.*
 import net.minecraft.entity.player.PlayerEntity
 import net.minecraft.item.ItemStack
@@ -37,52 +35,6 @@ import kotlin.random.Random
 
 class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : LivingEntity(kind.entityType, world), Merchant {
 
-    init {
-        setInvulnerable(true)
-        setSilent(true)
-
-        setNoGravity(true)
-        setNoDrag(true)
-        noClip = true
-
-        refreshPositionAndAngles(owner.x, owner.y, owner.z, owner.yaw, owner.pitch)
-
-        val team = scoreboard.getTeam("cminus")
-        if (team != null) {
-            scoreboard.addScoreHolderToTeam(nameForScoreboard, team)
-        } else {
-            logger.warn("Failed to get team for stand entity")
-        }
-
-        kind.entityInitializer(this)
-    }
-
-    override fun initDataTracker(builder: DataTracker.Builder) {
-        super.initDataTracker(builder)
-
-        if (type === EntityType.CAT) {
-            builder.add(CatEntity.CAT_VARIANT, Registries.CAT_VARIANT.entryOf(CatVariant.BLACK))
-        } else if (type === EntityType.WOLF) {
-            builder.add(WolfEntity.VARIANT, registryManager.get(RegistryKeys.WOLF_VARIANT).entryOf(WolfVariants.PALE))
-        } else if (type === EntityType.PARROT) {
-            builder.add(ParrotEntity.VARIANT, 0)
-        }
-    }
-
-    fun setVariantCat(variant: RegistryKey<CatVariant>) {
-        dataTracker.set(CatEntity.CAT_VARIANT, Registries.CAT_VARIANT.entryOf(variant))
-    }
-    fun setVariantWolf(variant: RegistryKey<WolfVariant>) {
-        dataTracker.set(WolfEntity.VARIANT, registryManager.get(RegistryKeys.WOLF_VARIANT).entryOf(variant))
-    }
-    fun setVariantParrot(variant: ParrotEntity.Variant) {
-        dataTracker.set(ParrotEntity.VARIANT, variant.id)
-    }
-
-    override fun getYesSound(): SoundEvent {
-        return kind.entitySound ?: SoundEvents.ENTITY_VILLAGER_YES
-    }
-
     private var customer: PlayerEntity? = null
 
     override fun getCustomer(): PlayerEntity? {
@@ -92,7 +44,15 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         this.customer = customer
     }
 
+    fun resetCustomer() {
+        setCustomer(null)
+    }
+
     private val offers = TradeOfferList()
+
+    override fun getOffers(): TradeOfferList {
+        return offers
+    }
 
     private var offersUpdatePromise: Promise<Unit>? = null
     private var offersLastUpdated: Int = -1000
@@ -100,7 +60,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     private fun updateOffersActual(): Promise<Unit> {
         return DB
             .perform { conn, actions ->
-                actions.listBlocks(owner.uuid).toList()
+                actions.listBlocks(owner.uuid)
             }
             .then { records ->
                 offers.clear()
@@ -129,7 +89,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     }
 
     private fun updateAndSendOffers(player: PlayerEntity): Promise<Unit> {
-        return updateOffers().then(executor = null) {
+        return updateOffers().then {
             setCustomer(player)
             sendOffers(player, Text.empty().append(owner.displayName).append("'s Spectre - Lv ${getPlayerLevel(owner)}"), 0)
         }
@@ -140,14 +100,71 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         return updateOffers()
     }
 
-    override fun getOffers(): TradeOfferList {
-        return offers
+    private val interactionsInProgress = HashSet<UUID>()
+
+    private fun calculatePosition(): Vec3d {
+        return owner.pos
+            .offset(Direction.UP, 0.75)
+            .add(Vec3d(-0.75, 0.0, -0.75).rotateY((360.0F - owner.yaw) * MathHelper.RADIANS_PER_DEGREE))
+    }
+
+    init {
+        setInvulnerable(true)
+        setInvisible(true)
+        setSilent(true)
+
+        setNoGravity(true)
+        setNoDrag(true)
+        noClip = true
+
+        val pos = calculatePosition()
+        refreshPositionAndAngles(pos.x, pos.y, pos.z, owner.yaw, owner.pitch)
+
+        val team = scoreboard.getTeam("cminus")
+        if (team != null) {
+            scoreboard.addScoreHolderToTeam(nameForScoreboard, team)
+        } else {
+            logger.warn("Failed to get team for stand entity")
+        }
+
+        kind.entityInitializer(this)
+    }
+
+    override fun tick() {
+        super.tick()
+
+        if (owner.world !== world || !owner.isAlive || !isInGameMode(owner) || owner.properties.standEntity !== this) {
+            if (owner.properties.standEntity === this) {
+                owner.properties.standEntity = null
+            }
+            remove(RemovalReason.KILLED)
+        }
+
+        if (!owner.isSneaking && owner !== customer && owner.uuid !in interactionsInProgress) {
+            setPosition(calculatePosition())
+            setRotation(owner.yaw, 0.0F)
+            setVelocity(0.0, 0.0, 0.0)
+        }
+    }
+
+    override fun interact(player: PlayerEntity, hand: Hand): ActionResult {
+        if (
+            player.currentScreenHandler === player.playerScreenHandler &&
+            interactionsInProgress.add(player.uuid)
+        ) {
+            startTradingWith(player).finally { _, _ ->
+                interactionsInProgress.remove(player.uuid)
+                emitGameEvent(GameEvent.ENTITY_INTERACT, player)
+            }
+            return ActionResult.SUCCESS
+        }
+        return ActionResult.PASS
     }
 
     override fun trade(offer: TradeOffer) {
         offer.use()
 
-        play(yesSound, pitch = Random.nextDouble(0.8, 1.2))
+        play(getYesSound(), pitch = Random.nextDouble(0.8, 1.2))
 
         for (i in 0 until 5) {
             particles(ParticleTypes.HAPPY_VILLAGER, count = 2) {
@@ -178,24 +195,22 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
             }
         }
 
-        DB
-            .perform { conn, actions ->
-                if (!actions.incrementPlayerLevel(owner.uuid)) {
-                    logger.warn("Player {} failed to increment level?", owner.nameForScoreboard)
-                }
-                actions.getPlayerLevel(owner.uuid)
+        DB.perform { conn, actions ->
+            val didIncrementLevel = actions.incrementPlayerLevel(owner.uuid)
+            if (!didIncrementLevel) {
+                logger.warn("Player {} failed to increment level?", owner.nameForScoreboard)
             }
-            .then { level ->
-                if (level != null) {
-                    owner.properties.knownLevel = level
-                    logger.info("Player {} incremented level to {}", owner.nameForScoreboard, level)
-                } else {
-                    logger.warn("Player {} failed to get level?", owner.nameForScoreboard)
-                }
+            val level = actions.getPlayerLevel(owner.uuid)
+            if (level == null) {
+                logger.warn("Player {} failed to get level?", owner.nameForScoreboard)
             }
-    }
-
-    override fun onSellingItem(stack: ItemStack) {
+            level
+        }.then { level ->
+            if (level != null) {
+                owner.properties.knownLevel = level
+                logger.info("Player {} incremented level to {}", owner.nameForScoreboard, level)
+            }
+        }
     }
 
     fun startTradingWith(player: PlayerEntity): Promise<Unit> {
@@ -208,42 +223,33 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         }
     }
 
-    private val interactionsInProgress = HashSet<UUID>()
+    override fun initDataTracker(builder: DataTracker.Builder) {
+        super.initDataTracker(builder)
 
-    override fun interact(player: PlayerEntity, hand: Hand): ActionResult {
-        if (
-            player.currentScreenHandler === player.playerScreenHandler &&
-            interactionsInProgress.add(player.uuid)
-        ) {
-            startTradingWith(player).finally { _, _ ->
-                interactionsInProgress.remove(player.uuid)
-                emitGameEvent(GameEvent.ENTITY_INTERACT, player)
-            }
-            return ActionResult.SUCCESS
+        if (type === EntityType.CAT) {
+            builder.add(CatEntity.CAT_VARIANT, Registries.CAT_VARIANT.entryOf(CatVariant.BLACK))
+        } else if (type === EntityType.WOLF) {
+            builder.add(WolfEntity.VARIANT, registryManager.get(RegistryKeys.WOLF_VARIANT).entryOf(WolfVariants.PALE))
+        } else if (type === EntityType.PARROT) {
+            builder.add(ParrotEntity.VARIANT, 0)
         }
-        return ActionResult.PASS
     }
 
-    override fun tick() {
-        super.tick()
+    fun setVariantCat(variant: RegistryKey<CatVariant>) {
+        dataTracker.set(CatEntity.CAT_VARIANT, Registries.CAT_VARIANT.entryOf(variant))
+    }
+    fun setVariantWolf(variant: RegistryKey<WolfVariant>) {
+        dataTracker.set(WolfEntity.VARIANT, registryManager.get(RegistryKeys.WOLF_VARIANT).entryOf(variant))
+    }
+    fun setVariantParrot(variant: ParrotEntity.Variant) {
+        dataTracker.set(ParrotEntity.VARIANT, variant.id)
+    }
 
-        if (owner.world !== world || !owner.isAlive) {
-            remove(RemovalReason.KILLED)
-        }
+    override fun getYesSound(): SoundEvent {
+        return kind.entitySound ?: SoundEvents.ENTITY_VILLAGER_YES
+    }
 
-        if (!owner.isSneaking && owner !== customer && owner.uuid !in interactionsInProgress) {
-            setPosition(
-                owner.pos
-                    .offset(Direction.UP, 0.75)
-                    .add(Vec3d(-0.75, 0.0, -0.75).rotateY((360.0F - owner.yaw) * MathHelper.RADIANS_PER_DEGREE))
-            )
-            setRotation(owner.yaw, 0.0F)
-            setVelocity(0.0, 0.0, 0.0)
-        }
-
-        if (!hasStatusEffect(StatusEffects.INVISIBILITY)) {
-            addStatusEffect(StatusEffectInstance(StatusEffects.INVISIBILITY, StatusEffectInstance.INFINITE, 0, true, false))
-        }
+    override fun onSellingItem(stack: ItemStack) {
     }
 
     override fun damage(source: DamageSource, amount: Float): Boolean {
