@@ -17,7 +17,6 @@ import net.minecraft.entity.Entity
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
 import net.minecraft.entity.player.PlayerEntity
-import net.minecraft.item.Item
 import net.minecraft.item.ItemStack
 import net.minecraft.network.packet.Packet
 import net.minecraft.particle.ParticleTypes
@@ -111,16 +110,15 @@ fun getPlayerLevel(player: PlayerEntity): Int {
     return player.properties.knownLevel.coerceAtLeast(1) + 10
 }
 
-fun <T> tryBlock(stack: ItemStack, consumer: (Identifier, Block) -> T?): T? = tryBlock(stack.item, consumer)
-fun <T> tryBlock(item: Item, consumer: (Identifier, Block) -> T?): T? {
-    val id = getItemID(item)
+fun <T> tryBlock(stack: ItemStack, consumer: (ItemStack, Identifier, Block) -> T?): T? {
+    val id = getItemID(stack.item)
     val block = getBlock(id)
-    return if (block !== Blocks.AIR && block !in bannedBlocks) consumer(id, block) else null
+    return if (block !== Blocks.AIR && block !in bannedBlocks) consumer(stack, id, block) else null
 }
 
 fun setupPlayer(player: ServerPlayerEntity) {
 
-    logger.info("Player {} is being set up", player.nameForScoreboard)
+    logger.debug("Player {} is being set up", player.nameForScoreboard)
 
     DB.perform { conn, actions ->
         val isNewPlayer = actions.addPlayer(player.uuid, player.nameForScoreboard)
@@ -158,7 +156,7 @@ fun setupPlayer(player: ServerPlayerEntity) {
 
     val uuid = player.uuid
     val blocks = player.inventory.asList().mapNotNull {
-        tryBlock(it) { id, block ->
+        tryBlock(it) { _, id, block ->
             if (player.properties.knownOwnedBlocks.add(block)) id.toString() else null
         }
     }
@@ -341,10 +339,24 @@ fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: H
 
     if (!isInGameMode(player)) return ActionResult.PASS
 
-    tryBlock(player.getStackInHand(hand)) { id, block ->
+    tryBlock(player.getStackInHand(hand)) { stack, id, block ->
         if (player.properties.lastUsedBlock !== block) {
             player.properties.lastUsedBlock = block
             DB.perform { conn, actions -> actions.useBlock(player.uuid, id.toString()) }
+        }
+        if (stack.count == 1) {
+            val list = player.inventory.asList()
+            val i1 = list.indexOf(stack)
+            val i2 = list.indexOfFirst { it !== stack && it.item === stack.item }
+            if (i1 >= 0 && i2 >= 0) {
+                delay(1) {
+                    if (list[i1].isEmpty && !list[i2].isEmpty) {
+                        list[i1] = list[i2]
+                        list[i2] = ItemStack.EMPTY
+                        player.inventory.markDirty()
+                    }
+                }
+            }
         }
     }
 
@@ -371,9 +383,9 @@ fun handlePlayerAttackAndDamageEntity(player: ServerPlayerEntity, entity: Entity
                     standEntity.play(SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, pitch = Random.nextDouble(0.8, 1.2))
                     standEntity.particles(ParticleTypes.CRIT, speed = 0.5, count = 10)
                 }
-                logger.info("Player {} stand entity attacked {}", player.nameForScoreboard, entity.displayName?.string)
+                logger.debug("Player {} stand entity attacked {}", player.nameForScoreboard, entity.displayName?.string)
             } else {
-                logger.info("Player {} stand entity failed to attack {}", player.nameForScoreboard, entity.displayName?.string)
+                logger.debug("Player {} stand entity failed to attack {}", player.nameForScoreboard, entity.displayName?.string)
             }
         }
     }
@@ -384,7 +396,7 @@ fun handlePlayerInventoryAdd(player: ServerPlayerEntity, stack: ItemStack) {
 
     if (!isInGameMode(player)) return
 
-    tryBlock(stack) { id, block ->
+    tryBlock(stack) { _, id, block ->
         if (player.properties.knownOwnedBlocks.add(block)) {
             DB.perform { conn, actions ->
                 actions.addBlock(player.uuid, id.toString())

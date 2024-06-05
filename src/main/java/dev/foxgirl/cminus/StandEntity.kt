@@ -67,14 +67,17 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
                 for (record in records) {
                     val block = getBlock(Identifier(record.block))
                     if (block !in bannedBlocks) {
-                        val offer = TradeOffer(TradedItem(Items.EMERALD, 16), ItemStack(block.asItem(), 64), Int.MAX_VALUE, 1, 0.05F)
+                        val item = block.asItem()
+                        val cost = (item.maxCount / 4).coerceAtLeast(1)
+                        val offer = TradeOffer(TradedItem(Items.EMERALD, cost), ItemStack(item, item.maxCount), Int.MAX_VALUE, 1, 0.05F)
                         offers.add(offer)
                     }
                 }
+                logger.debug("Prepared {} trade offers for stand entity for {}", offers.size, owner.nameForScoreboard)
             }
             .finally { _, cause ->
                 if (cause != null) {
-                    logger.error("Failed to update trade offers for stand entity", cause)
+                    logger.error("Failed to update trade offers for stand entity for ${owner.nameForScoreboard}", cause)
                 }
                 offersUpdatePromise = null
                 offersLastUpdated = age
@@ -107,6 +110,8 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
             .offset(Direction.UP, 0.75)
             .add(Vec3d(-0.75, 0.0, -0.75).rotateY((360.0F - owner.yaw) * MathHelper.RADIANS_PER_DEGREE))
     }
+
+    var isFixed: Boolean = false
 
     init {
         setInvulnerable(true)
@@ -145,7 +150,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
             return
         }
 
-        if (!owner.isSneaking && owner !== customer && owner.uuid !in interactionsInProgress) {
+        if (!isFixed && !owner.isSneaking && owner !== customer && owner.uuid !in interactionsInProgress) {
             setPosition(calculatePosition())
             setRotation(owner.yaw, 0.0F)
             setVelocity(0.0, 0.0, 0.0)
@@ -195,12 +200,12 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         if (customer == null) {
             logger.warn("Player traded with {}'s stand entity for {}, but no customer?", owner.nameForScoreboard, blockID)
         } else {
-            logger.info("Player {} traded with {}'s stand entity for {}", customer.nameForScoreboard, owner.nameForScoreboard, blockID)
-
             if (owner !== customer) {
+                logger.info("Player {} traded with {}'s stand entity for {}", customer.nameForScoreboard, owner.nameForScoreboard, blockID)
                 owner.sendMessage(Text.empty().append(customer.displayName).append(" bought ").append(blockText).append(" from your spectre"))
                 customer.sendMessage(Text.empty().append("You bought ").append(blockText).append(" from ").append(owner.displayName).append("'s spectre"))
             } else {
+                logger.info("Player {} traded with their stand entity for {}", owner.nameForScoreboard, blockID)
                 owner.sendMessage(Text.empty().append("You bought ").append(blockText).append(" from your spectre"))
                 DB.perform { conn, actions -> actions.useBlock(owner.uuid, blockID.toString()) }
             }
@@ -219,13 +224,13 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         }.then { level ->
             if (level != null) {
                 owner.properties.knownLevel = level
-                logger.info("Player {} incremented level to {}", owner.nameForScoreboard, level)
+                logger.debug("Player {} incremented level to {}", owner.nameForScoreboard, level)
             }
         }
     }
 
     fun startTradingWith(player: PlayerEntity): Promise<Unit> {
-        logger.info("Player {} opening {}'s stand entity", player.nameForScoreboard, owner.nameForScoreboard)
+        logger.debug("Player {} opening {}'s stand entity", player.nameForScoreboard, owner.nameForScoreboard)
         return run {
             setCustomer(player)
             updateAndSendOffers(player).then {

@@ -53,7 +53,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
 
                     val emeraldStacks = player.inventory.asList().filter { it.item === Items.EMERALD }
 
-                    var emeraldCountRemaining = 16
+                    var emeraldCountRemaining: Int = offer.firstBuyItem.count
                     val emeraldCount = emeraldStacks.sumOf { it.count }
                     if (emeraldCount < emeraldCountRemaining) {
                         ctx.source.sendError(Text.of("You don't have enough emeralds!"))
@@ -64,6 +64,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                         if (emeraldCountRemaining <= 0) break
                         stack.decrement(stack.count.coerceAtMost(emeraldCountRemaining).also { emeraldCountRemaining -= it })
                     }
+                    player.inventory.markDirty()
 
                     standEntity.trade(offer)
                     player.incrementStat(Stats.TRADED_WITH_VILLAGER)
@@ -105,6 +106,24 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                 }
             })
         }
+    })
+
+    dispatcher.register(literal("freeze").executes { ctx ->
+        val player = ctx.source.entity as? ServerPlayerEntity
+        if (player == null) {
+            ctx.source.sendError(Text.of("You must be a player to use this command!"))
+            return@executes 0
+        }
+
+        val standEntity = player.properties.standEntity
+        if (standEntity == null) {
+            ctx.source.sendError(Text.of("You don't have a spectre right now!"))
+            return@executes 0
+        }
+
+        standEntity.isFixed = !standEntity.isFixed
+        player.sendMessage(Text.literal("Your spectre is now ").append(if (standEntity.isFixed) "frozen" else "unfrozen"))
+        return@executes 1
     })
 
 }
