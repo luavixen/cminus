@@ -9,6 +9,8 @@
     "server": [
         "MixinDataTracker",
         "MixinDataTracker$Builder",
+        "MixinFindEntityTask",
+        "MixinLivingTargetCache",
         "MixinMinecraftServer",
         "MixinPlayerEntity",
         "MixinPlayerInventory",
