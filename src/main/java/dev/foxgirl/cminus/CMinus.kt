@@ -299,6 +299,9 @@ fun handleServerJoin(handler: ServerPlayNetworkHandler, sender: PacketSender, se
     player.sendMessage(Text.literal("Join the Discord: ").append(Text.literal("https://discord.gg/55zJX4PP6v").styled {
         it.withColor(Formatting.GREEN).withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://discord.gg/55zJX4PP6v"))
     }))
+    player.sendMessage(Text.literal("View the Dynmap: ").append(Text.literal("https://cminus.foxgirl.dev/").styled {
+        it.withColor(Formatting.GREEN).withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://cminus.foxgirl.dev/"))
+    }))
 
 }
 
