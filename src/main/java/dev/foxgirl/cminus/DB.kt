@@ -76,7 +76,7 @@ object DB : AutoCloseable {
         fun getPlayerLevel(player: UUID): Int?
         fun setPlayerLevel(player: UUID, level: Int): Boolean
 
-        fun incrementPlayerLevel(player: UUID): Boolean
+        fun incrementPlayerLevel(player: UUID, amount: Int): Boolean
     }
 
     private lateinit var stmtListBlocks: PreparedStatement
@@ -128,7 +128,7 @@ object DB : AutoCloseable {
 
             result.fold(
                 onSuccess = { value ->
-                    if (timeTaken >= 8_000_000L) {
+                    if (timeTaken >= 10_000_000L) {
                         logger.info("Action {}({}) done in {}ms(!): {}", name, paramsToString, timeTakenToString, resultToString)
                     } else {
                         // logger.debug("Action {}({}) done in {}ms: {}", name, paramsToString, timeTakenToString, resultToString)
@@ -378,9 +378,10 @@ object DB : AutoCloseable {
             }
         }
 
-        override fun incrementPlayerLevel(player: UUID): Boolean {
+        override fun incrementPlayerLevel(player: UUID, amount: Int): Boolean {
             return guardAction("incrementPlayerLevel", "player" to player) {
-                stmtIncrementPlayerLevel.setBytes(1, UUIDEncoding.toByteArray(player))
+                stmtIncrementPlayerLevel.setInt(1, amount)
+                stmtIncrementPlayerLevel.setBytes(2, UUIDEncoding.toByteArray(player))
                 stmtIncrementPlayerLevel.executeUpdate() > 0
             }
         }
@@ -463,7 +464,7 @@ object DB : AutoCloseable {
                 stmtSetPlayerLevel =
                     stmt("UPDATE players SET level = ? WHERE player = ?")
                 stmtIncrementPlayerLevel =
-                    stmt("UPDATE players SET level = level + 1 WHERE player = ?")
+                    stmt("UPDATE players SET level = level + ? WHERE player = ?")
             } catch (cause: Exception) {
                 throw RuntimeException("Failed to connect/initialize CMinus database", cause)
             }

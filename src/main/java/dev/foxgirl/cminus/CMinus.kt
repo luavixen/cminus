@@ -14,6 +14,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents
 import net.minecraft.block.Block
 import net.minecraft.block.Blocks
 import net.minecraft.entity.Entity
+import net.minecraft.entity.EntityType
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
 import net.minecraft.entity.player.PlayerEntity
@@ -38,7 +39,6 @@ import net.minecraft.util.math.Direction
 import net.minecraft.world.GameMode
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
-import kotlin.random.Random
 
 val logger: Logger = LogManager.getLogger("CMinus")
 
@@ -72,21 +72,34 @@ fun init() {
 }
 
 val bannedBlocks: Set<Block> = ImmutableSet.of(
-    Blocks.AIR,
-    Blocks.CAVE_AIR,
-    Blocks.VOID_AIR,
-    Blocks.STRUCTURE_VOID,
-    Blocks.FIRE,
-    Blocks.BEDROCK,
-    Blocks.BARRIER,
-    Blocks.COMMAND_BLOCK,
-    Blocks.CHAIN_COMMAND_BLOCK,
-    Blocks.REPEATING_COMMAND_BLOCK,
-    Blocks.STRUCTURE_BLOCK,
-    Blocks.JIGSAW,
-    Blocks.EMERALD_BLOCK,
-    Blocks.EMERALD_ORE,
-    Blocks.DEEPSLATE_EMERALD_ORE,
+    // Invalid or illegal blocks
+    Blocks.AIR, Blocks.CAVE_AIR, Blocks.VOID_AIR,
+    Blocks.FIRE, Blocks.BARRIER, Blocks.STRUCTURE_VOID,
+    Blocks.COMMAND_BLOCK, Blocks.CHAIN_COMMAND_BLOCK, Blocks.REPEATING_COMMAND_BLOCK,
+    Blocks.STRUCTURE_BLOCK, Blocks.JIGSAW,
+    Blocks.NETHER_PORTAL, Blocks.END_PORTAL,
+    Blocks.BEDROCK, Blocks.END_PORTAL_FRAME,
+    // Emeralds
+    Blocks.EMERALD_BLOCK, Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE,
+    // Other ores and minerals
+    Blocks.COAL_BLOCK, Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
+    Blocks.IRON_BLOCK, Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
+    Blocks.GOLD_BLOCK, Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE,
+    Blocks.REDSTONE_BLOCK, Blocks.REDSTONE_ORE, Blocks.DEEPSLATE_REDSTONE_ORE,
+    Blocks.LAPIS_BLOCK, Blocks.LAPIS_ORE, Blocks.DEEPSLATE_LAPIS_ORE,
+    Blocks.DIAMOND_BLOCK, Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
+    Blocks.ANCIENT_DEBRIS, Blocks.NETHERITE_BLOCK,
+    // Other "infinite loops"
+    Blocks.HAY_BLOCK,
+    Blocks.PUMPKIN, Blocks.MELON,
+)
+
+val bossEntityTypes: Set<EntityType<*>> = ImmutableSet.of(
+    EntityType.PLAYER,
+    EntityType.ENDER_DRAGON,
+    EntityType.WITHER,
+    EntityType.WITHER_SKULL,
+    EntityType.WARDEN,
 )
 
 lateinit var scoreboard: Scoreboard
@@ -96,6 +109,9 @@ class DelayedTask(var ticks: Int, val runnable: Runnable)
 val delayedTasks = mutableListOf<DelayedTask>()
 
 fun delay(ticks: Int, runnable: Runnable) {
+    if (!server.isOnThread) {
+        throw IllegalStateException("Attempted to create delayed task on wrong thread")
+    }
     delayedTasks.add(DelayedTask(ticks, runnable))
 }
 
@@ -106,8 +122,11 @@ fun isFlying(player: PlayerEntity?): Boolean {
     return player != null && player.abilities.flying
 }
 
-fun getPlayerLevel(player: PlayerEntity): Int {
-    return player.properties.knownLevel.coerceAtLeast(1) + 10
+fun getLevel(player: PlayerEntity): Int {
+    return (player.extraFields.knownLevel / 16).coerceAtLeast(1) + 10
+}
+fun getLevelMultiplier(player: PlayerEntity): Float {
+    return getLevel(player) * 0.1F
 }
 
 fun <T> tryBlock(stack: ItemStack, consumer: (ItemStack, Identifier, Block) -> T?): T? {
@@ -149,15 +168,15 @@ fun setupPlayer(player: ServerPlayerEntity) {
         record
     }.then { record ->
         if (record != null) {
-            player.properties.knownStand = record.stand
-            player.properties.knownLevel = record.level
+            player.extraFields.knownStand = record.stand
+            player.extraFields.knownLevel = record.level
         }
     }
 
     val uuid = player.uuid
     val blocks = player.inventory.asList().mapNotNull {
         tryBlock(it) { _, id, block ->
-            if (player.properties.knownOwnedBlocks.add(block)) id.toString() else null
+            if (player.extraFields.knownOwnedBlocks.add(block)) id.toString() else null
         }
     }
     if (blocks.isNotEmpty()) {
@@ -176,8 +195,8 @@ fun setupPlayers() {
     delay(20, ::setupPlayers)
 
     for (player in server.playerManager.playerList) {
-        val properties = player.properties
-        if (properties.knownStand.isEmpty() || properties.knownLevel <= 0) {
+        val properties = player.extraFields
+        if (properties.isKnownStandOrLevelUnset()) {
             setupPlayer(player)
         }
     }
@@ -244,28 +263,32 @@ fun onTickPlayer(player: ServerPlayerEntity) {
 
     if (player.air < 0) player.air = 0
 
-    if (player.isAlive && player.properties.knownStand.isNotEmpty() && player.properties.knownLevel > 0) {
-
-        val standKind = try {
-            StandKind.valueOf(player.properties.knownStand)
-        } catch (ignored: IllegalArgumentException) {
-            StandKind.VILLAGER
-        }
-
-        val oldStandEntity = player.properties.standEntity
-        if (oldStandEntity == null || oldStandEntity.isRemoved || oldStandEntity.kind !== standKind) {
-            oldStandEntity?.remove(Entity.RemovalReason.KILLED)
-            val newStandEntity = StandEntity(player, standKind, player.world)
-            player.world.spawnEntity(newStandEntity)
-            player.properties.standEntity = newStandEntity
-        }
+    if (player.isAlive) {
 
         if (player.scoreboardTeam?.name != "cminus") {
             val team = scoreboard.getTeam("cminus")
             if (team != null) scoreboard.addScoreHolderToTeam(player.nameForScoreboard, team)
         }
 
-        scoreboard.getOrCreateScore(player, scoreboardLevelObjective).score = getPlayerLevel(player)
+        if (!player.extraFields.isKnownLevelUnset()) {
+            scoreboard.getOrCreateScore(player, scoreboardLevelObjective).score = getLevel(player)
+        }
+
+        if (!player.extraFields.isKnownStandUnset()) {
+            val standKind = try {
+                StandKind.valueOf(player.extraFields.knownStand)
+            } catch (ignored: IllegalArgumentException) {
+                StandKind.VILLAGER
+            }
+
+            val oldStandEntity = player.extraFields.standEntity
+            if (oldStandEntity == null || oldStandEntity.isRemoved || oldStandEntity.kind !== standKind) {
+                oldStandEntity?.remove(Entity.RemovalReason.KILLED)
+                val newStandEntity = StandEntity(player, standKind, player.world)
+                player.world.spawnEntity(newStandEntity)
+                player.extraFields.standEntity = newStandEntity
+            }
+        }
 
     }
 
@@ -320,7 +343,14 @@ fun handlePlayerDamage(player: ServerPlayerEntity, source: DamageSource, amount:
         return true
     }
 
-    if (source.source is PlayerEntity || source.attacker is PlayerEntity) {
+    if (
+        source.isOf(DamageTypes.DRAGON_BREATH) ||
+        source.isOf(DamageTypes.WITHER_SKULL)
+    ) {
+        return true
+    }
+
+    if (source.source?.type in bossEntityTypes || source.attacker?.type in bossEntityTypes) {
         return true
     }
 
@@ -343,8 +373,8 @@ fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: H
     if (!isInGameMode(player)) return ActionResult.PASS
 
     tryBlock(player.getStackInHand(hand)) { stack, id, block ->
-        if (player.properties.lastUsedBlock !== block) {
-            player.properties.lastUsedBlock = block
+        if (player.extraFields.lastUsedBlock !== block) {
+            player.extraFields.lastUsedBlock = block
             DB.perform { conn, actions -> actions.useBlock(player.uuid, id.toString()) }
         }
         if (stack.count == 1) {
@@ -378,19 +408,28 @@ fun handlePlayerAttackAndDamageEntity(player: ServerPlayerEntity, entity: Entity
     if (!isInGameMode(player)) return
 
     delay(12) {
-        if (entity.isAlive) {
-            val success = entity.damage(source, amount * (getPlayerLevel(player).toFloat() / 10.0F))
-            if (success) {
-                val standEntity = player.properties.standEntity
-                if (standEntity != null) {
-                    standEntity.play(SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, pitch = Random.nextDouble(0.8, 1.2))
-                    standEntity.particles(ParticleTypes.CRIT, speed = 0.5, count = 10)
-                }
-                logger.debug("Player {} stand entity attacked {}", player.nameForScoreboard, entity.displayName?.string)
-            } else {
-                logger.debug("Player {} stand entity failed to attack {}", player.nameForScoreboard, entity.displayName?.string)
-            }
+
+        if (!entity.isAlive) return@delay
+
+        val standEntity = player.extraFields.standEntity
+        if (standEntity == null) {
+            logger.debug("Player {} stand entity is missing", player.nameForScoreboard)
+            return@delay
         }
+        if (standEntity.world !== entity.world || standEntity.squaredDistanceTo(entity) > 256.0) {
+            logger.debug("Player {} stand entity is too far from {}", player.nameForScoreboard, entity.displayName?.string)
+            return@delay
+        }
+
+        val success = entity.damage(source, amount * getLevelMultiplier(player))
+        if (success) {
+            standEntity.play(SoundEvents.ENTITY_PLAYER_ATTACK_SWEEP, pitch = 0.8 + 0.4 * standEntity.random.nextDouble())
+            standEntity.particles(ParticleTypes.CRIT, speed = 0.5, count = 10)
+            logger.debug("Player {} stand entity attacked {}", player.nameForScoreboard, entity.displayName?.string)
+        } else {
+            logger.debug("Player {} stand entity failed to attack {}", player.nameForScoreboard, entity.displayName?.string)
+        }
+
     }
 
 }
@@ -400,7 +439,7 @@ fun handlePlayerInventoryAdd(player: ServerPlayerEntity, stack: ItemStack) {
     if (!isInGameMode(player)) return
 
     tryBlock(stack) { _, id, block ->
-        if (player.properties.knownOwnedBlocks.add(block)) {
+        if (player.extraFields.knownOwnedBlocks.add(block)) {
             DB.perform { conn, actions ->
                 actions.addBlock(player.uuid, id.toString())
             }.then { isNewDiscovery ->

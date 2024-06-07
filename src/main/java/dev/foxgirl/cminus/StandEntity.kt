@@ -1,10 +1,8 @@
 package dev.foxgirl.cminus
 
 import dev.foxgirl.cminus.util.*
-import net.minecraft.entity.EntityType
-import net.minecraft.entity.EquipmentSlot
-import net.minecraft.entity.LivingEntity
-import net.minecraft.entity.MovementType
+import net.minecraft.block.BlockState
+import net.minecraft.entity.*
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.data.DataTracker
 import net.minecraft.entity.effect.StatusEffectInstance
@@ -21,6 +19,7 @@ import net.minecraft.sound.SoundEvent
 import net.minecraft.sound.SoundEvents
 import net.minecraft.text.Text
 import net.minecraft.util.*
+import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Direction
 import net.minecraft.util.math.MathHelper
 import net.minecraft.util.math.Vec3d
@@ -31,7 +30,6 @@ import net.minecraft.village.TradedItem
 import net.minecraft.world.World
 import net.minecraft.world.event.GameEvent
 import java.util.*
-import kotlin.random.Random
 
 class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : LivingEntity(kind.entityType, world), Merchant {
 
@@ -94,7 +92,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     private fun updateAndSendOffers(player: PlayerEntity): Promise<Unit> {
         return updateOffers().then {
             setCustomer(player)
-            sendOffers(player, Text.empty().append(owner.displayName).append("'s Spectre - Lv ${getPlayerLevel(owner)}"), 0)
+            sendOffers(player, Text.empty().append(owner.displayName).append("'s Spectre - ${getLevel(owner)} Lv"), 0)
         }
     }
 
@@ -141,9 +139,9 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     override fun tick() {
         super.tick()
 
-        if (owner.world !== world || !owner.isAlive || !isInGameMode(owner) || owner.properties.standEntity !== this) {
-            if (owner.properties.standEntity === this) {
-                owner.properties.standEntity = null
+        if (owner.world !== world || !owner.isAlive || !isInGameMode(owner) || owner.extraFields.standEntity !== this) {
+            if (owner.extraFields.standEntity === this) {
+                owner.extraFields.standEntity = null
             }
             remove(RemovalReason.KILLED)
             logger.debug("Removed stand entity for {}", owner.nameForScoreboard)
@@ -178,23 +176,28 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     override fun trade(offer: TradeOffer) {
         offer.use()
 
-        play(getYesSound(), pitch = Random.nextDouble(0.8, 1.2))
+        play(getYesSound(), pitch = 0.8 + 0.4 * random.nextDouble())
 
         for (i in 0 until 5) {
             particles(ParticleTypes.HAPPY_VILLAGER, count = 2) {
-                val halfWidth = width.toDouble() / 2.0
+                val fullWidth = width.toDouble()
+                val halfWidth = fullWidth / 2.0
                 it.add(
-                    Random.nextDouble(-halfWidth, halfWidth),
-                    Random.nextDouble(0.0, height.toDouble()),
-                    Random.nextDouble(-halfWidth, halfWidth)
+                    random.nextDouble() * fullWidth - halfWidth,
+                    random.nextDouble() * height.toDouble(),
+                    random.nextDouble() * fullWidth - halfWidth,
                 )
             }
         }
 
-        val stack = offer.sellItem
-        val block = getBlock(stack)
+        val soldItem = offer.sellItem!!
+        val boughtItem = offer.firstBuyItem!!
+
+        val block = getBlock(soldItem)
         val blockID = getBlockID(block)
         val blockText = block.name.copy().formatted(Formatting.GREEN)
+
+        val levelAmount = boughtItem.count
 
         val customer = customer
         if (customer == null) {
@@ -212,7 +215,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         }
 
         DB.perform { conn, actions ->
-            val didIncrementLevel = actions.incrementPlayerLevel(owner.uuid)
+            val didIncrementLevel = actions.incrementPlayerLevel(owner.uuid, levelAmount)
             if (!didIncrementLevel) {
                 logger.warn("Player {} failed to increment level?", owner.nameForScoreboard)
             }
@@ -223,7 +226,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
             level
         }.then { level ->
             if (level != null) {
-                owner.properties.knownLevel = level
+                owner.extraFields.knownLevel = level
                 logger.debug("Player {} incremented level to {}", owner.nameForScoreboard, level)
             }
         }
@@ -234,7 +237,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         return run {
             setCustomer(player)
             updateAndSendOffers(player).then {
-                play(SoundEvents.BLOCK_BARREL_OPEN, volume = 0.5, pitch = Random.nextDouble(0.8, 1.2))
+                play(SoundEvents.BLOCK_BARREL_OPEN, volume = 0.5, pitch = 0.8 + 0.4 * random.nextDouble())
             }
         }
     }
@@ -272,6 +275,16 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
         return false
     }
     override fun move(movementType: MovementType, movement: Vec3d) {
+    }
+
+    override fun collidesWith(other: Entity?): Boolean {
+        return false
+    }
+    override fun collidesWithStateAtPos(pos: BlockPos?, state: BlockState?): Boolean {
+        return false
+    }
+    override fun isCollidable(): Boolean {
+        return false
     }
 
     override fun getArmorItems(): Iterable<ItemStack> {

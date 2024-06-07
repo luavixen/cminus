@@ -1,4 +1,4 @@
-package dev.foxgirl.cminus.mixin;
+package dev.foxgirl.cminus.mixin.fixes.nbt_crash_fix;
 
 import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;

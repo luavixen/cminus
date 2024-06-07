@@ -24,7 +24,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                 ctx.source.sendError(Text.of("You must be a player to use this command!"))
                 return@executes 0
             } else {
-                player.properties.standEntity?.startTradingWith(player)
+                player.extraFields.standEntity?.startTradingWith(player)
                 return@executes 1
             }
         }
@@ -41,7 +41,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                 return@executes 0
             }
 
-            val standEntity = player.properties.standEntity
+            val standEntity = player.extraFields.standEntity
             if (standEntity != null) {
                 standEntity.prepareOffersFor(player).then {
                     val offerItem = block.asItem()
@@ -95,7 +95,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                     DB.perform { conn, actions ->
                         actions.setPlayerStand(player.uuid, kind.name)
                     }.then {
-                        player.properties.knownStand = kind.name
+                        player.extraFields.knownStand = kind.name
 
                         logger.info("Player {} has set their stand kind to {}", player.nameForScoreboard, kind.name)
                         player.sendMessage(Text.literal("You have set your spectre to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
@@ -115,7 +115,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
             return@executes 0
         }
 
-        val standEntity = player.properties.standEntity
+        val standEntity = player.extraFields.standEntity
         if (standEntity == null) {
             ctx.source.sendError(Text.of("You don't have a spectre right now!"))
             return@executes 0

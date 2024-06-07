@@ -5,12 +5,16 @@ import net.minecraft.block.Block
 import net.minecraft.block.Blocks
 import net.minecraft.entity.player.PlayerEntity
 
-class PlayerProperties {
+class PlayerExtraFields {
 
     val knownOwnedBlocks: MutableSet<Block> = ObjectOpenHashSet()
 
     var knownStand: String = ""
     var knownLevel: Int = 0
+
+    fun isKnownStandUnset() = knownStand.isEmpty()
+    fun isKnownLevelUnset() = knownLevel == 0
+    fun isKnownStandOrLevelUnset() = isKnownStandUnset() || isKnownLevelUnset()
 
     var standEntity: StandEntity? = null
 
@@ -18,8 +22,8 @@ class PlayerProperties {
 
 }
 
-interface PlayerPropertiesAccess {
-    fun getCMinusPlayerProperties(): PlayerProperties
+interface PlayerExtraFieldsAccess {
+    fun getCminusExtraFields(): PlayerExtraFields
 }
 
-val PlayerEntity.properties get() = (this as PlayerPropertiesAccess).getCMinusPlayerProperties()
+val PlayerEntity.extraFields get() = (this as PlayerExtraFieldsAccess).getCminusExtraFields()

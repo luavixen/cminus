@@ -1,10 +1,11 @@
 package dev.foxgirl.cminus.mixin;
 
 import dev.foxgirl.cminus.CMinusKt;
-import dev.foxgirl.cminus.PlayerProperties;
-import dev.foxgirl.cminus.PlayerPropertiesAccess;
+import dev.foxgirl.cminus.PlayerExtraFields;
+import dev.foxgirl.cminus.PlayerExtraFieldsAccess;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import org.jetbrains.annotations.NotNull;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -13,13 +14,14 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ServerPlayerEntity.class)
-public abstract class MixinServerPlayerEntity implements PlayerPropertiesAccess {
+public abstract class MixinServerPlayerEntity implements PlayerExtraFieldsAccess {
 
     @Unique
-    private final PlayerProperties cminusPlayerProperties = new PlayerProperties();
+    private final PlayerExtraFields cminusExtraFields = new PlayerExtraFields();
 
-    public PlayerProperties getCMinusPlayerProperties() {
-        return cminusPlayerProperties;
+    @Override
+    public @NotNull PlayerExtraFields getCminusExtraFields() {
+        return cminusExtraFields;
     }
 
     @Inject(method = "damage(Lnet/minecraft/entity/damage/DamageSource;F)Z", at = @At("HEAD"), cancellable = true)

@@ -1,4 +1,4 @@
-package dev.foxgirl.cminus.mixin;
+package dev.foxgirl.cminus.mixin.fixes.villager_find_entity_crash_fix;
 
 import dev.foxgirl.cminus.StandEntity;
 import net.minecraft.entity.LivingEntity;

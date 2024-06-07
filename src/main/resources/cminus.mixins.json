@@ -7,16 +7,17 @@
         "defaultRequire": 1
     },
     "server": [
-        "MixinDataTracker",
-        "MixinDataTracker$Builder",
-        "MixinFindEntityTask",
-        "MixinLivingTargetCache",
+        "fixes.nbt_crash_fix.MixinStringNbtReader",
+        "fixes.villager_find_entity_crash_fix.MixinFindEntityTask",
+        "fixes.villager_find_entity_crash_fix.MixinLivingTargetCache",
+        "fixes.data_tracker_fix.MixinDataTracker",
+        "fixes.data_tracker_fix.MixinDataTracker$Builder",
         "MixinMinecraftServer",
         "MixinPlayerEntity",
         "MixinPlayerInventory",
+        "MixinProjectileEntity",
         "MixinServerCommonNetworkHandler",
         "MixinServerPlayerEntity",
-        "MixinServerPlayerInteractionManager",
-        "MixinStringNbtReader"
+        "MixinServerPlayerInteractionManager"
     ]
 }

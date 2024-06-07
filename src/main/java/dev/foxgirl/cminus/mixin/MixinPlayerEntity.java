@@ -1,7 +1,6 @@
 package dev.foxgirl.cminus.mixin;
 
 import dev.foxgirl.cminus.CMinusKt;
-import dev.foxgirl.cminus.PlayerPropertiesKt;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerAbilities;
@@ -42,7 +41,7 @@ public abstract class MixinPlayerEntity {
     private float injected$applyDamage$modifyAppliedDamage(PlayerEntity player, DamageSource source, float amount) {
         var damage = player.modifyAppliedDamage(source, amount);
         if (CMinusKt.isInGameMode(player)) {
-            damage = damage / (1.0F + 0.1F * PlayerPropertiesKt.getProperties(player).getKnownLevel());
+            damage = damage / (1.0F + CMinusKt.getLevelMultiplier(player));
         }
         return damage;
     }
