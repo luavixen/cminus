@@ -237,14 +237,14 @@ object DB : AutoCloseable {
         override fun addBlocks(player: UUID, blocks: Iterable<String>): Int {
             return guardAction("addBlock", "player" to player, "blocks" to blocks) {
                 try {
-                    var i = 0
+                    var updateCount = 0
                     blocks.forEach { block ->
                         stmtAddBlock.setBytes(1, UUIDEncoding.toByteArray(player))
                         stmtAddBlock.setString(2, block)
                         stmtAddBlock.addBatch()
                     }
-                    stmtAddBlock.executeBatch().forEach { count -> if (count > 0) i++ }
-                    return@guardAction i
+                    stmtAddBlock.executeBatch().forEach { if (it > 0) updateCount++ }
+                    return@guardAction updateCount
                 } finally {
                     stmtAddBlock.clearBatch()
                 }
@@ -261,14 +261,14 @@ object DB : AutoCloseable {
         override fun removeBlocks(player: UUID, blocks: Iterable<String>): Int {
             return guardAction("removeBlocks", "player" to player, "blocks" to blocks) {
                 try {
-                    var i = 0
+                    var updateCount = 0
                     blocks.forEach { block ->
                         stmtRemoveBlock.setBytes(1, UUIDEncoding.toByteArray(player))
                         stmtRemoveBlock.setString(2, block)
                         stmtRemoveBlock.addBatch()
                     }
-                    stmtRemoveBlock.executeBatch().forEach { count -> if (count > 0) i++ }
-                    return@guardAction i
+                    stmtRemoveBlock.executeBatch().forEach { if (it > 0) updateCount++ }
+                    return@guardAction updateCount
                 } finally {
                     stmtRemoveBlock.clearBatch()
                 }
@@ -446,7 +446,7 @@ object DB : AutoCloseable {
                 stmtClearBlocks =
                     stmt("DELETE FROM blocks WHERE player = ?")
                 stmtListPlayers =
-                    stmt("SELECT player, name, stand, level FROM players")
+                    stmt("SELECT player, name, stand, level FROM players ORDER BY name")
                 stmtGetPlayer =
                     stmt("SELECT player, name, stand, level FROM players WHERE player = ?")
                 stmtGetPlayerByName =

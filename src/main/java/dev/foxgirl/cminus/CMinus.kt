@@ -317,7 +317,7 @@ fun handleEntityLoad(entity: Entity, world: ServerWorld) {
 fun handleServerJoin(handler: ServerPlayNetworkHandler, sender: PacketSender, server: MinecraftServer) {
 
     val player = handler.player
-    player.sendMessage(Text.literal("Welcome to the Creative- server, ").append(player.displayName).append("!"))
+    player.sendMessage(Text.literal("Welcome to CREATIVE-, ").append(player.displayName).append("!"))
     player.sendMessage(Text.literal("You can use ").append(Text.literal("/spectre").formatted(Formatting.GREEN)).append(" to choose your spectre"))
     player.sendMessage(Text.literal("Join the Discord: ").append(Text.literal("https://discord.gg/55zJX4PP6v").styled {
         it.withColor(Formatting.GREEN).withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://discord.gg/55zJX4PP6v"))
@@ -385,7 +385,7 @@ fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: H
                 delay(1) {
                     if (list[i1].isEmpty && !list[i2].isEmpty) {
                         list[i1] = list[i2]
-                        list[i2] = ItemStack.EMPTY
+                        list[i2] = stackOf()
                         player.inventory.markDirty()
                     }
                 }
@@ -416,7 +416,7 @@ fun handlePlayerAttackAndDamageEntity(player: ServerPlayerEntity, entity: Entity
             logger.debug("Player {} stand entity is missing", player.nameForScoreboard)
             return@delay
         }
-        if (standEntity.world !== entity.world || standEntity.squaredDistanceTo(entity) > 256.0) {
+        if (standEntity.world !== entity.world || standEntity.squaredDistanceTo(entity) > (7.0 * 7.0)) {
             logger.debug("Player {} stand entity is too far from {}", player.nameForScoreboard, entity.displayName?.string)
             return@delay
         }

@@ -67,7 +67,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
                     if (block !in bannedBlocks) {
                         val item = block.asItem()
                         val cost = (item.maxCount / 4).coerceAtLeast(1)
-                        val offer = TradeOffer(TradedItem(Items.EMERALD, cost), ItemStack(item, item.maxCount), Int.MAX_VALUE, 1, 0.05F)
+                        val offer = TradeOffer(TradedItem(Items.EMERALD, cost), stackOf(item, item.maxCount), Int.MAX_VALUE, 1, 0.05F)
                         offers.add(offer)
                     }
                 }
@@ -288,10 +288,10 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     }
 
     override fun getArmorItems(): Iterable<ItemStack> {
-        return emptyList()
+        return listOf()
     }
     override fun getEquippedStack(slot: EquipmentSlot): ItemStack {
-        return ItemStack.EMPTY
+        return stackOf()
     }
     override fun equipStack(slot: EquipmentSlot, stack: ItemStack) {
     }
