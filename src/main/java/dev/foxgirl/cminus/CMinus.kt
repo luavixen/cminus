@@ -89,6 +89,7 @@ val bannedBlocks: Set<Block> = ImmutableSet.of(
     Blocks.LAPIS_BLOCK, Blocks.LAPIS_ORE, Blocks.DEEPSLATE_LAPIS_ORE,
     Blocks.DIAMOND_BLOCK, Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
     Blocks.ANCIENT_DEBRIS, Blocks.NETHERITE_BLOCK,
+    Blocks.RAW_IRON_BLOCK, Blocks.RAW_GOLD_BLOCK,
     // Other "infinite loops"
     Blocks.HAY_BLOCK,
     Blocks.PUMPKIN, Blocks.MELON,
@@ -100,6 +101,9 @@ val bossEntityTypes: Set<EntityType<*>> = ImmutableSet.of(
     EntityType.WITHER,
     EntityType.WITHER_SKULL,
     EntityType.WARDEN,
+    EntityType.ELDER_GUARDIAN,
+    EntityType.GUARDIAN,
+    EntityType.PHANTOM,
 )
 
 lateinit var scoreboard: Scoreboard
