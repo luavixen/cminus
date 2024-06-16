@@ -19,7 +19,7 @@ public abstract class MixinPlayerEntity {
     @Inject(method = "addExhaustion(F)V", at = @At("HEAD"), cancellable = true)
     private void injected$addExhaustion(float exhaustion, CallbackInfo info) {
         var self = (PlayerEntity) (Object) this;
-        if (CMinusKt.isInGameMode(self) && !CMinusKt.isFlying(self)) info.cancel();
+        if (CMinusKt.isInGameMode(self, false) && !CMinusKt.isFlying(self)) info.cancel();
     }
 
     @Redirect(

@@ -2,9 +2,12 @@ package dev.foxgirl.cminus
 
 import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.IntegerArgumentType
+import com.mojang.brigadier.builder.ArgumentBuilder
+import com.mojang.brigadier.context.CommandContext
 import dev.foxgirl.cminus.util.asList
 import dev.foxgirl.cminus.util.getBlockID
 import dev.foxgirl.cminus.util.give
+import dev.foxgirl.cminus.util.truncate
 import net.minecraft.command.CommandRegistryAccess
 import net.minecraft.command.argument.BlockStateArgumentType
 import net.minecraft.command.argument.GameProfileArgumentType
@@ -22,27 +25,17 @@ import java.util.*
 fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, registry: CommandRegistryAccess, environment: CommandManager.RegistrationEnvironment) {
 
     dispatcher.register(literal("buy").also {
-        it.executes { ctx ->
-            val player = ctx.source.entity as? ServerPlayerEntity
-            if (player == null) {
-                ctx.source.sendError(Text.of("You must be a player to use this command!"))
-                return@executes 0
-            } else {
-                player.extraFields.standEntity?.startTradingWith(player)
-                return@executes 1
-            }
+        it.executesHandler(requiresPlayer = true) { ctx, source, player ->
+            player!!.extraFields.standEntity?.startTradingWith(player)
+            true
         }
-        it.then(argument("block", BlockStateArgumentType.blockState(registry)).executes { ctx ->
-            val player = ctx.source.entity as? ServerPlayerEntity
-            if (player == null) {
-                ctx.source.sendError(Text.of("You must be a player to use this command!"))
-                return@executes 0
-            }
+        it.then(argument("block", BlockStateArgumentType.blockState(registry)).executesHandler(requiresPlayer = true) { ctx, source, player ->
+            require(player != null)
 
             val block = BlockStateArgumentType.getBlockState(ctx, "block").blockState.block
-            if (block in bannedBlocks) {
-                ctx.source.sendError(Text.of("You can't buy this block!"))
-                return@executes 0
+            if (!canTradeBlock(block)) {
+                source.sendError(Text.of("You can't buy this block!"))
+                return@executesHandler false
             }
 
             val standEntity = player.extraFields.standEntity
@@ -51,7 +44,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                     val offerItem = block.asItem()
                     val offer = standEntity.offers.find { it.sellItem.item === offerItem }
                     if (offer == null) {
-                        ctx.source.sendError(Text.of("You don't have this block!"))
+                        source.sendError(Text.of("You don't have this block!"))
                         return@then
                     }
 
@@ -60,7 +53,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                     var emeraldCountRemaining: Int = offer.firstBuyItem.count
                     val emeraldCount = emeraldStacks.sumOf { it.count }
                     if (emeraldCount < emeraldCountRemaining) {
-                        ctx.source.sendError(Text.of("You don't have enough emeralds!"))
+                        source.sendError(Text.of("You don't have enough emeralds!"))
                         return@then
                     }
 
@@ -78,119 +71,108 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                 }
             }
 
-            return@executes 1
+            true
         })
     })
 
     dispatcher.register(literal("spectre").also {
-        it.executes { ctx ->
-            val player = ctx.source.entity as? ServerPlayerEntity
-            if (player != null) {
-                player.sendMessage(Text.literal("Use this command to change your spectre, like ").append(Text.literal("/spectre <mob>").formatted(Formatting.GREEN)))
-                return@executes 1
-            } else {
-                return@executes 0
-            }
+        it.executesHandler { ctx, source, player ->
+            source.sendMessage(Text.literal("Use this command to change your spectre, like ").append(Text.literal("/spectre <mob>").formatted(Formatting.GREEN)))
+            true
         }
         for (kind in StandKind.entries) {
-            it.then(literal(kind.name.lowercase()).executes { ctx ->
-                val player = ctx.source.entity as? ServerPlayerEntity
-                if (player != null) {
-                    DB.perform { conn, actions ->
-                        actions.setPlayerStand(player.uuid, kind.name)
-                    }.then {
-                        player.extraFields.knownStand = kind.name
+            it.then(literal(kind.name.lowercase()).executesHandler(requiresPlayer = true) { ctx, source, player ->
+                require(player != null)
 
-                        logger.info("Player {} has set their stand kind to {}", player.nameForScoreboard, kind.name)
-                        player.sendMessage(Text.literal("You have set your spectre to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
-                    }
-                    return@executes 1
-                } else {
-                    return@executes 0
+                DB.perform { conn, actions ->
+                    actions.setPlayerStand(player.uuid, kind.name)
+                }.then {
+                    player.extraFields.knownStand = kind.name
+
+                    logger.info("Player {} has set their stand kind to {}", player.nameForScoreboard, kind.name)
+                    player.sendMessage(Text.literal("You have set your spectre to ").append(kind.entityType.name.copy().formatted(Formatting.GREEN)))
                 }
+
+                true
             })
         }
     })
 
-    dispatcher.register(literal("freeze").executes { ctx ->
-        val player = ctx.source.entity as? ServerPlayerEntity
-        if (player == null) {
-            ctx.source.sendError(Text.of("You must be a player to use this command!"))
-            return@executes 0
-        }
+    dispatcher.register(literal("freeze").executesHandler(requiresPlayer = true) { ctx, source, player ->
+        require(player != null)
 
         val standEntity = player.extraFields.standEntity
         if (standEntity == null) {
             ctx.source.sendError(Text.of("You don't have a spectre right now!"))
-            return@executes 0
+            return@executesHandler false
         }
 
         standEntity.isFixed = !standEntity.isFixed
+
+        logger.debug("Player {} has set their spectre frozen state to {}", player.nameForScoreboard, standEntity.isFixed)
         player.sendMessage(Text.literal("Your spectre is now ").append(if (standEntity.isFixed) "frozen" else "unfrozen"))
-        return@executes 1
+
+        true
+    })
+
+    dispatcher.register(literal("instamine").executesHandler(requiresPlayer = true) { ctx, source, player ->
+        require(player != null)
+
+        player.extraFields.isInstantMiningActive = !player.extraFields.isInstantMiningActive
+
+        logger.debug("Player {} has set their instant mining state to {}", player.nameForScoreboard, player.extraFields.isInstantMiningActive)
+        player.sendMessage(Text.literal("Instant mining is now ").append(if (player.extraFields.isInstantMiningActive) "enabled" else "disabled"))
+
+        true
     })
 
     dispatcher.register(literal("cminus").also {
 
         it.then(literal("level").also {
 
-            it.then(literal("list").executes { ctx ->
-                if (!ctx.source.hasPermissionLevel(2)) {
-                    ctx.source.sendError(Text.of("You don't have permission to use this command!"))
-                    return@executes 0
-                }
-
+            it.then(literal("list").executesHandler(requiresOperator = true) { ctx, source, _ ->
                 DB.perform { conn, actions ->
                     actions.listPlayers()
                 }.then { players ->
-                    ctx.source.sendMessage(Text.of("Players: " + players.joinToString(", ") { "${it.name} (${it.level / 16 + 10})" }))
+                    source.sendMessage(Text.of("Players: " + players.joinToString(", ") { "${it.name} (${it.level / 16 + 10})" }))
                 }
-
-                return@executes 1
+                true
             })
 
-            it.then(literal("set").then(argument("players", GameProfileArgumentType.gameProfile()).then(argument("level", IntegerArgumentType.integer(11)).executes { ctx ->
-                if (!ctx.source.hasPermissionLevel(2)) {
-                    ctx.source.sendError(Text.of("You don't have permission to use this command!"))
-                    return@executes 0
-                }
-
-                val players = GameProfileArgumentType.getProfileArgument(ctx, "player").map { profile -> profile.id }
+            it.then(literal("set").then(argument("players", GameProfileArgumentType.gameProfile()).then(argument("level", IntegerArgumentType.integer(11)).executesHandler(requiresOperator = true) { ctx, source, _ ->
+                val players = GameProfileArgumentType.getProfileArgument(ctx, "players")
                 val level = IntegerArgumentType.getInteger(ctx, "level") * 16 - 160
 
                 DB.perform { conn, actions ->
                     var updateCount = 0
                     for (player in players) {
-                        if (actions.setPlayerLevel(player, level)) updateCount++
+                        if (actions.setPlayerLevel(player.id, level)) updateCount++
                     }
                     updateCount
                 }.then { updateCount ->
-                    ctx.source.sendMessage(Text.of("Updated level of $updateCount player(s)"))
+                    source.sendMessage(Text.of("Updated level of $updateCount player(s)"))
+                    logger.info("Set level to {} for updatedCount: {}, totalCount: {}, players: {}", level, updateCount, players.size, players.joinToString(", ") { it.name }.truncate(60))
                 }
 
-                return@executes 1
+                true
             })))
 
-            it.then(literal("increment").then(argument("players", GameProfileArgumentType.gameProfile()).then(argument("amount", IntegerArgumentType.integer()).executes { ctx ->
-                if (!ctx.source.hasPermissionLevel(2)) {
-                    ctx.source.sendError(Text.of("You don't have permission to use this command!"))
-                    return@executes 0
-                }
-
-                val players = GameProfileArgumentType.getProfileArgument(ctx, "player").map { profile -> profile.id }
+            it.then(literal("increment").then(argument("players", GameProfileArgumentType.gameProfile()).then(argument("amount", IntegerArgumentType.integer()).executesHandler(requiresOperator = true) { ctx, source, _ ->
+                val players = GameProfileArgumentType.getProfileArgument(ctx, "players")
                 val amount = IntegerArgumentType.getInteger(ctx, "amount") * 16
 
                 DB.perform { conn, actions ->
                     var updateCount = 0
                     for (player in players) {
-                        if (actions.incrementPlayerLevel(player, amount)) updateCount++
+                        if (actions.incrementPlayerLevel(player.id, amount)) updateCount++
                     }
                     updateCount
                 }.then { updateCount ->
-                    ctx.source.sendMessage(Text.of("Updated level of $updateCount player(s)"))
+                    source.sendMessage(Text.of("Updated level of $updateCount player(s)"))
+                    logger.info("Incremented level by {} for updatedCount: {}, totalCount: {}, players: {}", amount, updateCount, players.size, players.joinToString(", ") { it.name }.truncate(60))
                 }
 
-                return@executes 1
+                true
             })))
 
         })
@@ -198,26 +180,22 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
         it.then(literal("trade").also {
 
             fun tradeUpdateCommand(name: String, message: String, action: (DB.Actions, UUID, String) -> Boolean) {
-                it.then(literal(name).then(argument("players", GameProfileArgumentType.gameProfile()).then(argument("block", BlockStateArgumentType.blockState(registry)).executes { ctx ->
-                    if (!ctx.source.hasPermissionLevel(2)) {
-                        ctx.source.sendError(Text.of("You don't have permission to use this command!"))
-                        return@executes 0
-                    }
-
-                    val players = GameProfileArgumentType.getProfileArgument(ctx, "player").map { it.id }
+                it.then(literal(name).then(argument("players", GameProfileArgumentType.gameProfile()).then(argument("block", BlockStateArgumentType.blockState(registry)).executesHandler(requiresOperator = true) { ctx, source, _ ->
+                    val players = GameProfileArgumentType.getProfileArgument(ctx, "players")
                     val block = getBlockID(BlockStateArgumentType.getBlockState(ctx, "block").blockState.block).toString()
 
                     DB.perform { conn, actions ->
                         var updateCount = 0
                         for (player in players) {
-                            if (action(actions, player, block)) updateCount++
+                            if (action(actions, player.id, block)) updateCount++
                         }
                         updateCount
                     }.then { updateCount ->
-                        ctx.source.sendMessage(Text.of("$message for $block on $updateCount player(s)"))
+                        source.sendMessage(Text.of("$message for $block on $updateCount player(s)"))
+                        logger.info("$message for $block on updatedCount: ${updateCount}, totalCount: ${players.size}, players: ${players.joinToString(", ") { it.name }.truncate(60)}")
                     }
 
-                    return@executes 1
+                    true
                 })))
             }
 
@@ -231,25 +209,21 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
 
             it.then(literal("clear").also {
 
-                it.then(argument("players", GameProfileArgumentType.gameProfile()).executes { ctx ->
-                    if (!ctx.source.hasPermissionLevel(2)) {
-                        ctx.source.sendError(Text.of("You don't have permission to use this command!"))
-                        return@executes 0
-                    }
-
-                    val players = GameProfileArgumentType.getProfileArgument(ctx, "player").map { it.id }
+                it.then(argument("players", GameProfileArgumentType.gameProfile()).executesHandler(requiresOperator = true) { ctx, source, _ ->
+                    val players = GameProfileArgumentType.getProfileArgument(ctx, "players")
 
                     DB.perform { conn, actions ->
                         var updateCount = 0
                         for (player in players) {
-                            if (actions.clearBlocks(player) > 0) updateCount++
+                            if (actions.clearBlocks(player.id) > 0) updateCount++
                         }
                         updateCount
                     }.then { updateCount ->
-                        ctx.source.sendMessage(Text.of("Cleared trades for $updateCount player(s)"))
+                        source.sendMessage(Text.of("Cleared trades for $updateCount player(s)"))
+                        logger.info("Cleared trades for updatedCount: ${updateCount}, totalCount: ${players.size}, players: ${players.joinToString(", ") { it.name }.truncate(60)}")
                     }
 
-                    return@executes 1
+                    true
                 })
 
             })
@@ -258,4 +232,30 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
 
     })
 
+}
+
+fun <S : ServerCommandSource, T : ArgumentBuilder<S, T>> ArgumentBuilder<S, T>.executesHandler(
+    requiresPlayer: Boolean = false,
+    requiresOperator: Boolean = false,
+    handler: (CommandContext<S>, S, ServerPlayerEntity?) -> Boolean,
+): T {
+    return executes { ctx ->
+        val source = ctx.source
+        val player = ctx.source.entity as? ServerPlayerEntity
+        try {
+            if (requiresPlayer && player == null) {
+                source.sendError(Text.of("You must be a player to use this command!"))
+                return@executes 0
+            }
+            if (requiresOperator && !source.hasPermissionLevel(2)) {
+                source.sendError(Text.of("You don't have permission to use this command!"))
+                return@executes 0
+            }
+            return@executes if (handler(ctx, source, player)) 1 else 0
+        } catch (cause: Exception) {
+            source.sendError(Text.of("Unexpected exception while executing command: ${cause.message ?: cause.javaClass.name}"))
+            logger.error("Unexpected exception while executing command \"${ctx.input.truncate(40)}\"", cause)
+            return@executes 0
+        }
+    }
 }

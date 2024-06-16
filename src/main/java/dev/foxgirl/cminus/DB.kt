@@ -3,7 +3,7 @@ package dev.foxgirl.cminus
 import dev.foxgirl.cminus.util.Promise
 import dev.foxgirl.cminus.util.UUIDEncoding
 import dev.foxgirl.cminus.util.lazyToString
-import dev.foxgirl.cminus.util.trimToLength
+import dev.foxgirl.cminus.util.truncate
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 import java.sql.Connection
@@ -123,8 +123,8 @@ object DB : AutoCloseable {
             val timeTaken = timeFinished - timeStarted
             val timeTakenToString = lazyToString { String.format("%.4f", timeTaken.toDouble() * 1E-6) }
 
-            val paramsToString = lazyToString { trimToLength(params.joinToString(", ") { (k, v) -> "$k: $v" }, 60) }
-            val resultToString = lazyToString { trimToLength(result.fold({ it.toString() }, { it.message ?: it.javaClass.name }), 40) }
+            val paramsToString = lazyToString { params.joinToString(", ") { (k, v) -> "$k: $v" }.truncate(60) }
+            val resultToString = lazyToString { result.fold({ it.toString() }, { it.message ?: it.javaClass.name }).truncate(40) }
 
             result.fold(
                 onSuccess = { value ->

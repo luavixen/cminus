@@ -10,7 +10,6 @@ import net.minecraft.entity.effect.StatusEffects
 import net.minecraft.entity.passive.*
 import net.minecraft.entity.player.PlayerEntity
 import net.minecraft.item.ItemStack
-import net.minecraft.item.Items
 import net.minecraft.particle.ParticleTypes
 import net.minecraft.registry.Registries
 import net.minecraft.registry.RegistryKey
@@ -26,7 +25,6 @@ import net.minecraft.util.math.Vec3d
 import net.minecraft.village.Merchant
 import net.minecraft.village.TradeOffer
 import net.minecraft.village.TradeOfferList
-import net.minecraft.village.TradedItem
 import net.minecraft.world.World
 import net.minecraft.world.event.GameEvent
 import java.util.*
@@ -64,12 +62,7 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
                 offers.clear()
                 for (record in records) {
                     val block = getBlock(Identifier(record.block))
-                    if (block !in bannedBlocks) {
-                        val item = block.asItem()
-                        val cost = (item.maxCount / 4).coerceAtLeast(1)
-                        val offer = TradeOffer(TradedItem(Items.EMERALD, cost), stackOf(item, item.maxCount), Int.MAX_VALUE, 1, 0.05F)
-                        offers.add(offer)
-                    }
+                    if (canTradeBlock(block)) offers.add(getTrade(block).offer)
                 }
                 logger.debug("Prepared {} trade offers for stand entity for {}", offers.size, owner.nameForScoreboard)
             }

@@ -39,6 +39,11 @@ public abstract class MixinServerPlayerInteractionManager {
     private int lastFastBreakingTime;
 
     @Unique
+    private boolean canPlayerInstantMine() {
+        return CMinusKt.isInGameMode(player, false) && CMinusKt.isInstantMiningActive(player);
+    }
+
+    @Unique
     private boolean usingCorrectTool(BlockState state) {
         return player.getInventory().getBlockBreakingSpeed(state) >= 2.0F;
     }
@@ -58,7 +63,7 @@ public abstract class MixinServerPlayerInteractionManager {
 
     @Inject(method = "update()V", at = @At("TAIL"))
     private void injected$update(CallbackInfo info) {
-        if (mining && CMinusKt.isInGameMode(player)) {
+        if (mining && canPlayerInstantMine()) {
             var state = world.getBlockState(miningPos);
             if (usingCorrectTool(state) && shouldBreakNow()) {
                 lastFastBreakingTime = tickCounter;

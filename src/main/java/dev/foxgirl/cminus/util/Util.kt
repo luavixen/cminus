@@ -31,6 +31,6 @@ inline fun lazyToString(crossinline block: () -> String): Any {
     }
 }
 
-fun trimToLength(string: String, length: Int): String {
-    return if (string.length > length) string.substring(0, length - 1) + "\u2026" else string
+fun String.truncate(maxLength: Int, postfix: String = "\u2026"): String {
+    return if (length > maxLength) substring(0, length - 1) + postfix else this
 }

@@ -18,7 +18,9 @@ import net.minecraft.entity.EntityType
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
 import net.minecraft.entity.player.PlayerEntity
+import net.minecraft.item.Item
 import net.minecraft.item.ItemStack
+import net.minecraft.item.Items
 import net.minecraft.network.packet.Packet
 import net.minecraft.particle.ParticleTypes
 import net.minecraft.scoreboard.*
@@ -36,7 +38,10 @@ import net.minecraft.util.Identifier
 import net.minecraft.util.hit.BlockHitResult
 import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Direction
+import net.minecraft.village.TradeOffer
+import net.minecraft.village.TradedItem
 import net.minecraft.world.GameMode
+import net.minecraft.world.dimension.DimensionTypes
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
 
@@ -95,6 +100,37 @@ val bannedBlocks: Set<Block> = ImmutableSet.of(
     Blocks.PUMPKIN, Blocks.MELON,
 )
 
+val exclusiveBlocks: Set<Block> = ImmutableSet.of(
+    // THE ONE PIECE !!
+    Blocks.DRAGON_EGG,
+    Blocks.DRAGON_HEAD, Blocks.DRAGON_WALL_HEAD,
+)
+
+fun canTradeBlock(block: Block): Boolean {
+    return block !in bannedBlocks || block in exclusiveBlocks
+}
+
+class Trade(val block: Block) {
+    val item: Item = block.asItem()
+
+    val amount: Int
+    val cost: Int
+    val offer: TradeOffer
+
+    init {
+        if (block in exclusiveBlocks) {
+            amount = 1
+            cost = 16
+        } else {
+            amount = item.maxCount
+            cost = (item.maxCount / 4).coerceAtLeast(1)
+        }
+        offer = TradeOffer(TradedItem(Items.EMERALD, cost), stackOf(item, amount), Int.MAX_VALUE, 1, 0.05F)
+    }
+}
+
+fun getTrade(block: Block) = Trade(block)
+
 val bossEntityTypes: Set<EntityType<*>> = ImmutableSet.of(
     EntityType.PLAYER,
     EntityType.ENDER_DRAGON,
@@ -122,8 +158,20 @@ fun delay(ticks: Int, runnable: Runnable) {
 fun isInGameMode(player: PlayerEntity?): Boolean {
     return player != null && (player as ServerPlayerEntity).interactionManager.gameMode === GameMode.SURVIVAL
 }
+
+fun isInEndDimension(entity: Entity?): Boolean {
+    return entity != null && entity.world.dimensionEntry === DimensionTypes.THE_END
+}
+fun isInGameMode(player: PlayerEntity?, shouldIncludeEnd: Boolean): Boolean {
+    return isInGameMode(player) && (shouldIncludeEnd || !isInEndDimension(player))
+}
+
 fun isFlying(player: PlayerEntity?): Boolean {
     return player != null && player.abilities.flying
+}
+
+fun isInstantMiningActive(player: PlayerEntity): Boolean {
+    return player.extraFields.isInstantMiningActive
 }
 
 fun getLevel(player: PlayerEntity): Int {
@@ -334,7 +382,7 @@ fun handleServerJoin(handler: ServerPlayNetworkHandler, sender: PacketSender, se
 
 fun handlePlayerDamage(player: ServerPlayerEntity, source: DamageSource, amount: Float): Boolean {
 
-    if (!isInGameMode(player)) return true
+    if (!isInGameMode(player, shouldIncludeEnd = false)) return true
 
     if (
         source.isOf(DamageTypes.FALL) ||

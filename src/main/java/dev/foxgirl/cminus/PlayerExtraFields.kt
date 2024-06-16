@@ -16,9 +16,11 @@ class PlayerExtraFields {
     fun isKnownLevelUnset() = knownLevel == 0
     fun isKnownStandOrLevelUnset() = isKnownStandUnset() || isKnownLevelUnset()
 
+    var lastUsedBlock: Block = Blocks.AIR
+
     var standEntity: StandEntity? = null
 
-    var lastUsedBlock: Block = Blocks.AIR
+    var isInstantMiningActive: Boolean = true
 
 }
 
