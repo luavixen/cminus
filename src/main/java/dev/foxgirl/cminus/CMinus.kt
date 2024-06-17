@@ -44,8 +44,12 @@ import net.minecraft.world.GameMode
 import net.minecraft.world.dimension.DimensionTypes
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.util.concurrent.ThreadLocalRandom
 
 val logger: Logger = LogManager.getLogger("CMinus")
+
+val random: ThreadLocalRandom
+    get() = ThreadLocalRandom.current()
 
 lateinit var server: MinecraftServer
 
@@ -160,10 +164,15 @@ fun isInGameMode(player: PlayerEntity?): Boolean {
 }
 
 fun isInEndDimension(entity: Entity?): Boolean {
-    return entity != null && entity.world.dimensionEntry === DimensionTypes.THE_END
+    return entity != null && entity.world.dimensionEntry.matchesKey(DimensionTypes.THE_END)
 }
 fun isInGameMode(player: PlayerEntity?, shouldIncludeEnd: Boolean): Boolean {
-    return isInGameMode(player) && (shouldIncludeEnd || !isInEndDimension(player))
+    if (isInGameMode(player)) {
+        if (shouldIncludeEnd) return true
+        if (isInEndDimension(player)) return false
+        return true
+    }
+    return false
 }
 
 fun isFlying(player: PlayerEntity?): Boolean {
@@ -278,6 +287,8 @@ fun onStart() {
     )
     scoreboard.setObjectiveSlot(ScoreboardDisplaySlot.BELOW_NAME, scoreboardLevelObjective)
 
+    setupEndTweaks()
+
     setupPlayers()
 
 }
@@ -301,7 +312,7 @@ fun onTickPlayer(player: ServerPlayerEntity) {
     if (!isInGameMode(player)) return
 
     player.abilities.apply {
-        if (player.hungerManager.foodLevel <= 0) {
+        if (player.hungerManager.foodLevel <= 0 || isInEndDimension(player)) {
             if (allowFlying || flying) {
                 allowFlying = false
                 flying = false
@@ -359,7 +370,7 @@ fun handleEntityLoad(entity: Entity, world: ServerWorld) {
             setupPlayer(entity)
         }
     } else {
-        if (entity !is StandEntity && entity.scoreboardTeam?.name == "cminus") {
+        if (entity !is StandEntity && entity.scoreboardTeam?.name == "cminus" && !entity.hasCustomName()) {
             entity.remove(Entity.RemovalReason.KILLED)
         }
     }

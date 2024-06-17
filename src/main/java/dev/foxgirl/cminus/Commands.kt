@@ -4,13 +4,11 @@ import com.mojang.brigadier.CommandDispatcher
 import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.builder.ArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
-import dev.foxgirl.cminus.util.asList
-import dev.foxgirl.cminus.util.getBlockID
-import dev.foxgirl.cminus.util.give
-import dev.foxgirl.cminus.util.truncate
+import dev.foxgirl.cminus.util.*
 import net.minecraft.command.CommandRegistryAccess
 import net.minecraft.command.argument.BlockStateArgumentType
 import net.minecraft.command.argument.GameProfileArgumentType
+import net.minecraft.entity.boss.dragon.EnderDragonEntity
 import net.minecraft.item.Items
 import net.minecraft.server.command.CommandManager
 import net.minecraft.server.command.CommandManager.argument
@@ -20,6 +18,7 @@ import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.stat.Stats
 import net.minecraft.text.Text
 import net.minecraft.util.Formatting
+import net.minecraft.world.World
 import java.util.*
 
 fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, registry: CommandRegistryAccess, environment: CommandManager.RegistrationEnvironment) {
@@ -228,6 +227,16 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
 
             })
 
+        })
+
+        it.then(literal("play_egg_animation").executesHandler { ctx, source, player ->
+            Async.go {
+                val world = Async.poll { server.getWorld(World.END) }
+                val dragonFight = Async.poll { world.enderDragonFight }
+                val dragonEntity = Async.poll { world.getEntity(dragonFight.dragonUuid) as? EnderDragonEntity }
+                playEggAnimation(world, dragonFight, dragonEntity)
+            }
+            true
         })
 
     })

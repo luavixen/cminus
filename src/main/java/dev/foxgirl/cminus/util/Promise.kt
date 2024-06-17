@@ -20,7 +20,7 @@ class Promise<T>(private val future: CompletableFuture<T>) : Future<T> by future
             if (cause != null) {
                 val isNewException = synchronized(trackedExceptions) { trackedExceptions.add(cause) }
                 if (isNewException) {
-                    logger.warn("Exception in promise: {}", cause.message ?: cause.javaClass.name)
+                    logger.error("Unexpected exception in Promise", cause)
                 }
             }
         }

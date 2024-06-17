@@ -17,6 +17,10 @@ loom {
 
 repositories {
     mavenCentral()
+    maven {
+        name = "EngineHub"
+        url = "https://maven.enginehub.org/repo/"
+    }
 }
 
 configurations {
@@ -40,6 +44,8 @@ dependencies {
     includeImplementation "org.jetbrains.kotlin:kotlin-stdlib:${project.kotlin_version}"
     includeImplementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:${project.kotlin_version}"
     includeImplementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:${project.kotlin_version}"
+
+    modImplementation 'com.sk89q.worldedit:worldedit-fabric-mc1.20.6:7.3.3'
 
     includeImplementation 'com.h2database:h2:2.2.224'
 }
