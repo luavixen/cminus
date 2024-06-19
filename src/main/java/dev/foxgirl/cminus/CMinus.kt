@@ -100,6 +100,7 @@ val bannedBlocks: Set<Block> = ImmutableSet.of(
     Blocks.ANCIENT_DEBRIS, Blocks.NETHERITE_BLOCK,
     Blocks.RAW_IRON_BLOCK, Blocks.RAW_GOLD_BLOCK,
     // Other "infinite loops"
+    Blocks.COBWEB,
     Blocks.HAY_BLOCK,
     Blocks.PUMPKIN, Blocks.MELON,
 )
@@ -188,6 +189,15 @@ fun getLevel(player: PlayerEntity): Int {
 }
 fun getLevelMultiplier(player: PlayerEntity): Float {
     return getLevel(player) * 0.1F
+}
+
+fun getDamageDivisor(player: PlayerEntity): Float {
+    val divisor = 1.0F + getLevelMultiplier(player)
+    return if (isInEndDimension(player)) {
+        divisor.coerceAtMost(10.0F)
+    } else {
+        divisor
+    }
 }
 
 fun <T> tryBlock(stack: ItemStack, consumer: (ItemStack, Identifier, Block) -> T?): T? {

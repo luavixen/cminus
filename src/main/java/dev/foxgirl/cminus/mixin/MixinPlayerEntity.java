@@ -41,7 +41,7 @@ public abstract class MixinPlayerEntity {
     private float injected$applyDamage$modifyAppliedDamage(PlayerEntity player, DamageSource source, float amount) {
         var damage = player.modifyAppliedDamage(source, amount);
         if (CMinusKt.isInGameMode(player)) {
-            damage = damage / (1.0F + CMinusKt.getLevelMultiplier(player));
+            damage = damage / CMinusKt.getDamageDivisor(player);
         }
         return damage;
     }

@@ -2,7 +2,6 @@ package dev.foxgirl.cminus
 
 import com.google.common.collect.ImmutableMap
 import com.google.common.collect.ImmutableMultimap
-import com.google.common.collect.ImmutableSet
 import com.sk89q.worldedit.WorldEdit
 import com.sk89q.worldedit.WorldEditException
 import com.sk89q.worldedit.fabric.FabricAdapter
@@ -95,8 +94,10 @@ fun setupEndTweaks() {
         logger.info("(EndTweaks) Ender Dragon fight ready: {}", dragonFight)
 
         if (dragonFight.dragonKilled) {
-            logger.warn("(EndTweaks) Ender Dragon entity is dead, oh no! Skipping tweaks :<")
+            logger.warn("(EndTweaks) Ender Dragon is dead, oh no! Skipping tweaks :<")
             return@go
+        } else {
+            logger.info("(EndTweaks) Ender Dragon is alive!")
         }
 
         fun getDragonEntity(): EnderDragonEntity? {
@@ -138,10 +139,6 @@ fun setupEndTweaks() {
             logger.info("(EndTweaks) Ender Dragon entity name/state/attributes updated")
         }
 
-        val ignoredPlayers: Set<UUID> = ImmutableSet.of<UUID>(
-            UUID.fromString("84cc25f6-1689-4729-a3fa-43a79e428404"), // luavixen
-            UUID.fromString("ea5f3df6-eba5-47b6-a7f8-fbfec4078069"), // breqdbank
-        )
         fun getActivePlayersInEnd(): List<ServerPlayerEntity> {
             return world.players.filter {
                 it.isAlive && it.world === world && !it.hasPermissionLevel(2)
@@ -330,7 +327,7 @@ fun playEggAnimation(world: ServerWorld, dragonFight: EnderDragonFight, dragonEn
                 Async.delay()
                 eggEntity.particles(ParticleTypes.EXPLOSION, 10.0, 3) { it }
             }
-            eggEntity.play(SoundEvents.BLOCK_PORTAL_TRAVEL, SoundCategory.MASTER, 2.0, random.nextDouble(0.7, 1.3))
+            eggEntity.play(SoundEvents.BLOCK_PORTAL_TRAVEL, SoundCategory.MASTER, 1.4, 1.0)
             eggEntity.kill()
         }
     }
