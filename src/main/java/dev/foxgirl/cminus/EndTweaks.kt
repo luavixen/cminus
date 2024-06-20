@@ -244,11 +244,11 @@ fun setupEndTweaks() {
 
                 val overworld = server.overworld
                 if (!(
-                    overworld.getBlockState(pos.up()   ).isSolid ||
-                    overworld.getBlockState(pos.down() ).isSolid ||
-                    overworld.getBlockState(pos.north()).isSolid ||
-                    overworld.getBlockState(pos.east() ).isSolid ||
-                    overworld.getBlockState(pos.south()).isSolid ||
+                    overworld.getBlockState(pos.up()   ).isSolid &&
+                    overworld.getBlockState(pos.down() ).isSolid &&
+                    overworld.getBlockState(pos.north()).isSolid &&
+                    overworld.getBlockState(pos.east() ).isSolid &&
+                    overworld.getBlockState(pos.south()).isSolid &&
                     overworld.getBlockState(pos.west() ).isSolid
                 )) continue
 
