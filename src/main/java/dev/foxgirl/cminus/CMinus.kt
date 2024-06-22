@@ -103,12 +103,14 @@ val bannedBlocks: Set<Block> = ImmutableSet.of(
     Blocks.COBWEB,
     Blocks.HAY_BLOCK,
     Blocks.PUMPKIN, Blocks.MELON,
+    // THE ONE PIECE !! (just the egg)
+    Blocks.DRAGON_EGG,
 )
 
 val exclusiveBlocks: Set<Block> = ImmutableSet.of(
     // THE ONE PIECE !!
-    Blocks.DRAGON_EGG,
     Blocks.DRAGON_HEAD, Blocks.DRAGON_WALL_HEAD,
+    Blocks.DRAGON_EGG,
 )
 
 fun canTradeBlock(block: Block): Boolean {
@@ -147,6 +149,8 @@ val bossEntityTypes: Set<EntityType<*>> = ImmutableSet.of(
     EntityType.PHANTOM,
 )
 
+val isEggCreativeModeEnabled: Boolean = false
+
 lateinit var scoreboard: Scoreboard
 lateinit var scoreboardLevelObjective: ScoreboardObjective
 
@@ -160,20 +164,40 @@ fun delay(ticks: Int, runnable: Runnable) {
     delayedTasks.add(DelayedTask(ticks, runnable))
 }
 
+fun isInSpecificGameMode(player: PlayerEntity?, mode: GameMode): Boolean {
+    return player != null && (player as ServerPlayerEntity).interactionManager.gameMode === mode
+}
+
 fun isInGameMode(player: PlayerEntity?): Boolean {
-    return player != null && (player as ServerPlayerEntity).interactionManager.gameMode === GameMode.SURVIVAL
+    return isInSpecificGameMode(player, GameMode.SURVIVAL)
 }
 
 fun isInEndDimension(entity: Entity?): Boolean {
     return entity != null && entity.world.dimensionEntry.matchesKey(DimensionTypes.THE_END)
 }
-fun isInGameMode(player: PlayerEntity?, shouldIncludeEnd: Boolean): Boolean {
+
+fun shouldHaveEggCreativeMode(player: PlayerEntity?): Boolean {
+    if (!isEggCreativeModeEnabled) return false
+    if (player != null && (isInGameMode(player) || isInSpecificGameMode(player, GameMode.CREATIVE))) {
+        return player.inventory.containsAny { it.item === Items.DRAGON_EGG }
+            || player.currentScreenHandler?.cursorStack?.item === Items.DRAGON_EGG
+    }
+    return false
+}
+
+fun isInGameMode(player: PlayerEntity?, shouldIncludeEnd: Boolean = false, shouldIncludeEggCreativeMode: Boolean = false): Boolean {
+    if (shouldIncludeEggCreativeMode && shouldHaveEggCreativeMode(player)) {
+        return true
+    }
     if (isInGameMode(player)) {
         if (shouldIncludeEnd) return true
         if (isInEndDimension(player)) return false
         return true
     }
     return false
+}
+fun isInGameMode(player: PlayerEntity?, shouldIncludeEnd: Boolean): Boolean {
+    return isInGameMode(player, shouldIncludeEnd = shouldIncludeEnd, shouldIncludeEggCreativeMode = false)
 }
 
 fun isFlying(player: PlayerEntity?): Boolean {
@@ -319,18 +343,37 @@ fun onTick() {
 
 fun onTickPlayer(player: ServerPlayerEntity) {
 
-    if (!isInGameMode(player)) return
+    var isInGameMode = isInGameMode(player)
+    var isInCreativeMode = isInSpecificGameMode(player, GameMode.CREATIVE)
 
-    player.abilities.apply {
-        if (player.hungerManager.foodLevel <= 0 || isInEndDimension(player)) {
-            if (allowFlying || flying) {
-                allowFlying = false
-                flying = false
+    val shouldHaveEggCreativeMode = shouldHaveEggCreativeMode(player)
+
+    fun switchGameMode(mode: GameMode) {
+        player.changeGameMode(mode)
+        isInGameMode = mode === GameMode.SURVIVAL
+        isInCreativeMode = mode === GameMode.CREATIVE
+    }
+
+    if (isInCreativeMode && !shouldHaveEggCreativeMode && !player.hasPermissionLevel(2)) {
+        switchGameMode(GameMode.SURVIVAL)
+    } else if (!isInCreativeMode && shouldHaveEggCreativeMode) {
+        switchGameMode(GameMode.CREATIVE)
+    }
+
+    if (!isInGameMode && !(isInCreativeMode && shouldHaveEggCreativeMode)) return
+
+    if (isInGameMode) {
+        player.abilities.apply {
+            if (player.hungerManager.foodLevel <= 0 || isInEndDimension(player)) {
+                if (allowFlying || flying) {
+                    allowFlying = false
+                    flying = false
+                    player.sendAbilitiesUpdate()
+                }
+            } else if (!allowFlying) {
+                allowFlying = true
                 player.sendAbilitiesUpdate()
             }
-        } else if (!allowFlying) {
-            allowFlying = true
-            player.sendAbilitiesUpdate()
         }
     }
 
@@ -376,7 +419,7 @@ fun handlePacket(player: ServerPlayerEntity, packet: Packet<*>): Packet<*>? {
 fun handleEntityLoad(entity: Entity, world: ServerWorld) {
 
     if (entity is ServerPlayerEntity) {
-        if (isInGameMode(entity)) {
+        if (isInGameMode(entity, shouldIncludeEggCreativeMode = true)) {
             setupPlayer(entity)
         }
     } else {
@@ -478,7 +521,7 @@ fun handlePlayerAttackBlock(player: ServerPlayerEntity, world: ServerWorld, hand
 
 fun handlePlayerAttackAndDamageEntity(player: ServerPlayerEntity, entity: Entity, source: DamageSource, amount: Float) {
 
-    if (!isInGameMode(player)) return
+    if (!isInGameMode(player, shouldIncludeEggCreativeMode = true)) return
 
     delay(12) {
 

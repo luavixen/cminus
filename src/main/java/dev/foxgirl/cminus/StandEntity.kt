@@ -132,7 +132,10 @@ class StandEntity(val owner: PlayerEntity, val kind: StandKind, world: World) : 
     override fun tick() {
         super.tick()
 
-        if (owner.world !== world || !owner.isAlive || !isInGameMode(owner) || owner.extraFields.standEntity !== this) {
+        if (
+            owner.world !== world || !owner.isAlive || !isInGameMode(owner, shouldIncludeEggCreativeMode = true) ||
+            owner.extraFields.standEntity !== this
+        ) {
             if (owner.extraFields.standEntity === this) {
                 owner.extraFields.standEntity = null
             }
