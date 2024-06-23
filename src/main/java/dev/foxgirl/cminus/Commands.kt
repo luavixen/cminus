@@ -9,7 +9,6 @@ import net.minecraft.command.CommandRegistryAccess
 import net.minecraft.command.argument.BlockStateArgumentType
 import net.minecraft.command.argument.GameProfileArgumentType
 import net.minecraft.entity.boss.dragon.EnderDragonEntity
-import net.minecraft.item.Items
 import net.minecraft.server.command.CommandManager
 import net.minecraft.server.command.CommandManager.argument
 import net.minecraft.server.command.CommandManager.literal
@@ -47,7 +46,7 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                         return@then
                     }
 
-                    val emeraldStacks = player.inventory.asList().filter { it.item === Items.EMERALD }
+                    val emeraldStacks = player.inventory.asList().filter { it.item === standCurrencyItem }
 
                     var emeraldCountRemaining: Int = offer.firstBuyItem.count
                     val emeraldCount = emeraldStacks.sumOf { it.count }
@@ -237,6 +236,19 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
                 playEggAnimation(world, dragonFight, dragonEntity)
             }
             true
+        })
+
+        it.then(literal("give_special_item").also {
+            for ((id, stack) in specialItems) {
+                it.then(literal(id).executesHandler(requiresPlayer = true) { ctx, source, player ->
+                    require(player != null)
+
+                    player.give(stack.copy())
+                    player.sendMessage(Text.of("Gave you a special item: $id"))
+
+                    true
+                })
+            }
         })
 
     })

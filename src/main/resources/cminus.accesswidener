@@ -40,3 +40,10 @@ accessible method net/minecraft/entity/decoration/DisplayEntity setDisplayHeight
 accessible method net/minecraft/entity/decoration/DisplayEntity getDisplayHeight ()F
 accessible method net/minecraft/entity/decoration/DisplayEntity setGlowColorOverride (I)V
 accessible method net/minecraft/entity/decoration/DisplayEntity getGlowColorOverride ()I
+
+accessible method net/minecraft/nbt/NbtList <init> (Ljava/util/List;B)V
+accessible method net/minecraft/nbt/NbtCompound <init> (Ljava/util/Map;)V
+
+accessible method net/minecraft/util/collection/DefaultedList <init> (Ljava/util/List;Ljava/lang/Object;)V
+accessible field net/minecraft/util/collection/DefaultedList delegate Ljava/util/List;
+accessible field net/minecraft/util/collection/DefaultedList initialElement Ljava/lang/Object;

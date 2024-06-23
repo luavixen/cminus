@@ -47,7 +47,7 @@ import net.minecraft.world.World
 import org.joml.Vector3f
 import java.util.*
 
-fun setupEndTweaks() {
+fun setupEndFightSequence() {
 
     val endPortalFrameRecipeEntry = RecipeEntry(
         Identifier.of("cminus", "emerald_block_end_portal_frame"),
@@ -86,18 +86,23 @@ fun setupEndTweaks() {
 
     Async.go {
 
-        logger.info("(EndTweaks) Setting up...")
+        if (!isCustomDragonFightEnabled) {
+            logger.warn("(EndFightSequence) Custom dragon fight is disabled, skipping tweaks!")
+            return@go
+        }
+
+        logger.info("(EndFightSequence) Setting up...")
 
         val world = Async.poll { server.getWorld(World.END) }
-        logger.info("(EndTweaks) Server loaded End dimension world")
+        logger.info("(EndFightSequence) Server loaded End dimension world")
         val dragonFight = Async.poll { world.enderDragonFight }
-        logger.info("(EndTweaks) Ender Dragon fight ready: {}", dragonFight)
+        logger.info("(EndFightSequence) Ender Dragon fight ready: {}", dragonFight)
 
         if (dragonFight.dragonKilled) {
-            logger.warn("(EndTweaks) Ender Dragon is dead, oh no! Skipping tweaks :<")
+            logger.warn("(EndFightSequence) Ender Dragon is dead, oh no! Skipping tweaks :<")
             return@go
         } else {
-            logger.info("(EndTweaks) Ender Dragon is alive!")
+            logger.info("(EndFightSequence) Ender Dragon is alive!")
         }
 
         fun getDragonEntity(): EnderDragonEntity? {
@@ -106,7 +111,7 @@ fun setupEndTweaks() {
 
         Async.go {
             val dragonEntity = Async.poll { getDragonEntity() }
-            logger.info("(EndTweaks) Ender Dragon entity ready: {}", dragonEntity)
+            logger.info("(EndFightSequence) Ender Dragon entity ready: {}", dragonEntity)
 
             dragonEntity.customName = Text.of("Ender D. Ragon")
             dragonEntity.isAiDisabled = true
@@ -136,7 +141,7 @@ fun setupEndTweaks() {
             applyAttributeModifier(dragonEntity, EntityAttributes.GENERIC_ATTACK_DAMAGE, dragonAttackDamageModifier)
             applyAttributeModifier(dragonEntity, EntityAttributes.GENERIC_ATTACK_KNOCKBACK, dragonAttackKnockbackModifier)
 
-            logger.info("(EndTweaks) Ender Dragon entity name/state/attributes updated")
+            logger.info("(EndFightSequence) Ender Dragon entity name/state/attributes updated")
         }
 
         fun getActivePlayersInEnd(): List<ServerPlayerEntity> {
@@ -151,16 +156,16 @@ fun setupEndTweaks() {
         Async.go {
             Async.until { areActivePlayersInEnd() }
             Async.poll { getDragonEntity() }.isAiDisabled = false
-            logger.info("(EndTweaks) Ender Dragon entity AI enabled, active player in end")
+            logger.info("(EndFightSequence) Ender Dragon entity AI enabled, active player in end")
         }
 
         fun sendMessageAs(actor: String, message: Text) {
-            logger.info("(EndTweaks) Sending chat message: <{}> {}", actor, message.string)
+            logger.info("(EndFightSequence) Sending chat message: <{}> {}", actor, message.string)
             val text = Text.empty().append("<").append(Text.literal(actor).formatted(Formatting.GREEN)).append("> ").append(message)
             Broadcast.send(GameMessageS2CPacket(text, false))
         }
         fun displayDragonTitle(message: String) {
-            logger.info("(EndTweaks) Displaying dragon title message: {}", message)
+            logger.info("(EndFightSequence) Displaying dragon title message: {}", message)
             val text = Text.literal(message).formatted(Formatting.LIGHT_PURPLE)
             Broadcast.send(TitleFadeS2CPacket(10, 70, 20))
             Broadcast.send(TitleS2CPacket(text))
@@ -219,7 +224,7 @@ fun setupEndTweaks() {
             }
             Async.until { isDragonDead() }
 
-            logger.info("(EndTweaks) Ender Dragon defeated!")
+            logger.info("(EndFightSequence) Ender Dragon defeated!")
 
             playEggAnimation(world, dragonFight, Async.poll { getDragonEntity() })
 
@@ -265,9 +270,9 @@ fun setupEndTweaks() {
 
                     try {
                         Operations.complete(weRegionVisitor)
-                        logger.info("(EndTweaks) Updated biome at x: ${pos.x}, z: ${pos.z} affecting ${weRegionVisitor.affected} blocks")
+                        logger.info("(EndFightSequence) Updated biome at x: ${pos.x}, z: ${pos.z} affecting ${weRegionVisitor.affected} blocks")
                     } catch (cause: WorldEditException) {
-                        logger.error("(EndTweaks) Failed to update biome at x: ${pos.x}, z: ${pos.z}", cause)
+                        logger.error("(EndFightSequence) Failed to update biome at x: ${pos.x}, z: ${pos.z}", cause)
                     }
                 } finally {
                     weSession.close()
@@ -275,8 +280,8 @@ fun setupEndTweaks() {
 
                 overworld.setBlockState(pos, Blocks.DRAGON_EGG.defaultState)
 
-                logger.info("(EndTweaks) Dragon egg placed at x: {}, y: {}, z: {}", pos.x, pos.y, pos.z)
-                logger.info("(EndTweaks) Dragon egg position biome is: {}", overworld.getBiome(pos))
+                logger.info("(EndFightSequence) Dragon egg placed at x: {}, y: {}, z: {}", pos.x, pos.y, pos.z)
+                logger.info("(EndFightSequence) Dragon egg position biome is: {}", overworld.getBiome(pos))
 
                 break
             }

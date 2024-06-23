@@ -15,6 +15,7 @@ import net.minecraft.block.Block
 import net.minecraft.block.Blocks
 import net.minecraft.entity.Entity
 import net.minecraft.entity.EntityType
+import net.minecraft.entity.ItemEntity
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
 import net.minecraft.entity.player.PlayerEntity
@@ -117,6 +118,8 @@ fun canTradeBlock(block: Block): Boolean {
     return block !in bannedBlocks || block in exclusiveBlocks
 }
 
+val standCurrencyItem: Item get() = Items.STICK // Items.EMERALD
+
 class Trade(val block: Block) {
     val item: Item = block.asItem()
 
@@ -132,7 +135,7 @@ class Trade(val block: Block) {
             amount = item.maxCount
             cost = (item.maxCount / 4).coerceAtLeast(1)
         }
-        offer = TradeOffer(TradedItem(Items.EMERALD, cost), stackOf(item, amount), Int.MAX_VALUE, 1, 0.05F)
+        offer = TradeOffer(TradedItem(standCurrencyItem, cost), stackOf(item, amount), Int.MAX_VALUE, 1, 0.05F)
     }
 }
 
@@ -149,7 +152,8 @@ val bossEntityTypes: Set<EntityType<*>> = ImmutableSet.of(
     EntityType.PHANTOM,
 )
 
-val isEggCreativeModeEnabled: Boolean = false
+const val isCustomDragonFightEnabled: Boolean = false
+const val isEggCreativeModeEnabled: Boolean = true
 
 lateinit var scoreboard: Scoreboard
 lateinit var scoreboardLevelObjective: ScoreboardObjective
@@ -167,7 +171,6 @@ fun delay(ticks: Int, runnable: Runnable) {
 fun isInSpecificGameMode(player: PlayerEntity?, mode: GameMode): Boolean {
     return player != null && (player as ServerPlayerEntity).interactionManager.gameMode === mode
 }
-
 fun isInGameMode(player: PlayerEntity?): Boolean {
     return isInSpecificGameMode(player, GameMode.SURVIVAL)
 }
@@ -180,7 +183,7 @@ fun shouldHaveEggCreativeMode(player: PlayerEntity?): Boolean {
     if (!isEggCreativeModeEnabled) return false
     if (player != null && (isInGameMode(player) || isInSpecificGameMode(player, GameMode.CREATIVE))) {
         return player.inventory.containsAny { it.item === Items.DRAGON_EGG }
-            || player.currentScreenHandler?.cursorStack?.item === Items.DRAGON_EGG
+            || player.currentScreenHandler.cursorStack.item === Items.DRAGON_EGG
     }
     return false
 }
@@ -321,7 +324,7 @@ fun onStart() {
     )
     scoreboard.setObjectiveSlot(ScoreboardDisplaySlot.BELOW_NAME, scoreboardLevelObjective)
 
-    setupEndTweaks()
+    setupEndFightSequence()
 
     setupPlayers()
 
@@ -343,13 +346,23 @@ fun onTick() {
 
 fun onTickPlayer(player: ServerPlayerEntity) {
 
+    // Switch into correct gamemode
+
     var isInGameMode = isInGameMode(player)
     var isInCreativeMode = isInSpecificGameMode(player, GameMode.CREATIVE)
 
     val shouldHaveEggCreativeMode = shouldHaveEggCreativeMode(player)
 
     fun switchGameMode(mode: GameMode) {
+        player.closeHandledScreen()
         player.changeGameMode(mode)
+
+        if (mode === GameMode.SURVIVAL && isInCreativeMode) {
+            if (!player.hasPermissionLevel(2) && !player.inventory.containsAny { it.item === Items.DRAGON_EGG }) {
+                player.dropItem(stackOf(Items.DRAGON_EGG), false, true)
+            }
+        }
+
         isInGameMode = mode === GameMode.SURVIVAL
         isInCreativeMode = mode === GameMode.CREATIVE
     }
@@ -360,7 +373,11 @@ fun onTickPlayer(player: ServerPlayerEntity) {
         switchGameMode(GameMode.CREATIVE)
     }
 
+    // Check if we should manage this gamemode or not
+
     if (!isInGameMode && !(isInCreativeMode && shouldHaveEggCreativeMode)) return
+
+    // Handle flying in survival mode
 
     if (isInGameMode) {
         player.abilities.apply {
@@ -377,7 +394,11 @@ fun onTickPlayer(player: ServerPlayerEntity) {
         }
     }
 
+    // Disable drowning
+
     if (player.air < 0) player.air = 0
+
+    // Handle all C- stand functionality
 
     if (player.isAlive) {
 
@@ -406,6 +427,58 @@ fun onTickPlayer(player: ServerPlayerEntity) {
             }
         }
 
+    }
+
+    val inventoryList = player.inventory.asList()
+
+    // Handle all C- dragon egg creative mode functionality
+
+    var hasEgg = false
+
+    val cursorStack = player.currentScreenHandler.cursorStack
+    if (cursorStack.item === Items.DRAGON_EGG) {
+        if (cursorStack.count > 1) {
+            cursorStack.count = 1
+            player.currentScreenHandler.sendContentUpdates()
+        }
+        hasEgg = true
+    }
+
+    for ((i, stack) in inventoryList.withIndex()) {
+        if (stack.item === Items.DRAGON_EGG) {
+            if (hasEgg) {
+                inventoryList[i] = stackOf()
+                player.inventory.markDirty()
+            } else if (stack.count > 1) {
+                stack.count = 1
+                player.inventory.markDirty()
+            }
+            hasEgg = true
+        }
+    }
+
+    player.serverWorld
+        .getEntitiesByClass(ItemEntity::class.java, player.boundingBox.expand(8.0, 8.0, 8.0)) { it.stack.item === Items.DRAGON_EGG }
+        .forEach { entity ->
+            if (hasEgg) {
+                entity.remove(Entity.RemovalReason.KILLED)
+            } else if (entity.stack.count > 1) {
+                entity.stack.count = 1
+            }
+            hasEgg = true
+        }
+
+    // Handle C- new special items
+
+    for ((i, stack) in inventoryList.withIndex()) {
+        val specialItemID = getSpecialItemID(stack)
+        if (specialItemID != null) {
+            val specialStack = specialItems[specialItemID]!!
+            if (!areSpecialItemsEqual(specialStack, stack)) {
+                inventoryList[i] = specialStack.copy()
+                player.inventory.markDirty()
+            }
+        }
     }
 
 }
@@ -486,22 +559,44 @@ fun handlePlayerRespawn(oldPlayer: ServerPlayerEntity, newPlayer: ServerPlayerEn
 
 fun handlePlayerUseBlock(player: ServerPlayerEntity, world: ServerWorld, hand: Hand, hit: BlockHitResult): ActionResult {
 
+    val stack = player.getStackInHand(hand)
+
+    if (getSpecialItemID(stack) == "pumpkin") {
+        val golemEntity = EntityType.IRON_GOLEM.create(player.serverWorld)!!
+        golemEntity.refreshPositionAndAngles(hit.blockPos.up(1), 0.0F, 0.0F)
+        golemEntity.setAngerTime(40)
+        player.serverWorld.spawnEntity(golemEntity)
+
+        stack.count = 0
+        player.inventory.markDirty()
+
+        delay(20) {
+            if (player.getStackInHand(hand).isEmpty) {
+                player.setStackInHand(hand, specialItemPumpkin.copy())
+            } else {
+                player.give(specialItemPumpkin.copy())
+            }
+        }
+
+        return ActionResult.FAIL
+    }
+
     if (!isInGameMode(player)) return ActionResult.PASS
 
-    tryBlock(player.getStackInHand(hand)) { stack, id, block ->
+    tryBlock(stack) { _, id, block ->
         if (player.extraFields.lastUsedBlock !== block) {
             player.extraFields.lastUsedBlock = block
             DB.perform { conn, actions -> actions.useBlock(player.uuid, id.toString()) }
         }
         if (stack.count == 1) {
-            val list = player.inventory.asList()
-            val i1 = list.indexOf(stack)
-            val i2 = list.indexOfFirst { it !== stack && it.item === stack.item }
+            val inventoryList = player.inventory.asList()
+            val i1 = inventoryList.indexOf(stack)
+            val i2 = inventoryList.indexOfFirst { it !== stack && it.item === stack.item }
             if (i1 >= 0 && i2 >= 0) {
                 delay(1) {
-                    if (list[i1].isEmpty && !list[i2].isEmpty) {
-                        list[i1] = list[i2]
-                        list[i2] = stackOf()
+                    if (inventoryList[i1].isEmpty && !inventoryList[i2].isEmpty) {
+                        inventoryList[i1] = inventoryList[i2]
+                        inventoryList[i2] = stackOf()
                         player.inventory.markDirty()
                     }
                 }

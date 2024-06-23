@@ -1,7 +1,9 @@
 package dev.foxgirl.cminus.mixin;
 
 import dev.foxgirl.cminus.CMinusKt;
+import dev.foxgirl.cminus.SpecialItemsKt;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.network.packet.s2c.play.WorldEventS2CPacket;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.network.ServerPlayerInteractionManager;
@@ -45,6 +47,12 @@ public abstract class MixinServerPlayerInteractionManager {
 
     @Unique
     private boolean usingCorrectTool(BlockState state) {
+        var block = state.getBlock();
+        if (block == Blocks.BARRIER || block == Blocks.BEDROCK || block == Blocks.END_PORTAL_FRAME) {
+            if ("barrier_breaker".equals(SpecialItemsKt.getSpecialItemID(player.getStackInHand(player.getActiveHand())))) {
+                return true;
+            }
+        }
         return player.getInventory().getBlockBreakingSpeed(state) >= 2.0F;
     }
     @Unique
