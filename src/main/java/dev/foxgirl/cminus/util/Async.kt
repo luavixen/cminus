@@ -24,7 +24,7 @@ object Async {
     }
 
     private fun <T> resumeContinuation(continuation: Continuation<T>, value: T?, cause: Throwable?) {
-        continuation.resumeWith(if (cause != null) Result.failure(cause) else Result.success(value!!))
+        continuation.resumeWith(if (cause != null) Result.failure(cause) else Result.success(value) as Result<T>)
     }
 
     fun <T> go(context: CoroutineContext = EmptyCoroutineContext, coroutine: suspend () -> T): Promise<T> =

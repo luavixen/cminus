@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableMap
 import dev.foxgirl.cminus.util.nbtCompoundOf
 import dev.foxgirl.cminus.util.stackOf
 import net.minecraft.component.DataComponentTypes
+import net.minecraft.component.type.LoreComponent
 import net.minecraft.component.type.NbtComponent
 import net.minecraft.enchantment.Enchantments
 import net.minecraft.item.ItemStack
@@ -30,42 +31,55 @@ fun areSpecialItemsEqual(stack1: ItemStack, stack2: ItemStack): Boolean {
         && stack1.enchantments == stack2.enchantments
 }
 
+fun setCustomName(stack: ItemStack, name: Text) {
+    stack.set(DataComponentTypes.CUSTOM_NAME, name)
+}
+fun setCustomLore(stack: ItemStack, lore: List<Text>) {
+    stack.set(DataComponentTypes.LORE, LoreComponent(lore))
+}
+
 val specialItemDebugStick: ItemStack = stackOf(Items.DEBUG_STICK).apply {
     addSpecialItemID(this, "debug_stick")
-    set(DataComponentTypes.CUSTOM_NAME, Text.literal("Debug Stick").formatted(Formatting.RED))
+    setCustomName(this, Text.literal("The Ancient Weapon SHIFTIS").formatted(Formatting.RED))
+    setCustomLore(this, listOf(Text.of("transmutate any block into its alternative forms")))
 }
 
 val specialItemKnockbackHoe: ItemStack = stackOf(Items.NETHERITE_HOE).apply {
     addSpecialItemID(this, "knockback_hoe")
-    set(DataComponentTypes.CUSTOM_NAME, Text.literal("Knockback Hoe").formatted(Formatting.RED))
+    setCustomName(this, Text.literal("The Ancient Weapon FLINGUS").formatted(Formatting.RED))
+    setCustomLore(this, listOf(Text.of("banish your enemies into the stratosphere")))
     addEnchantment(Enchantments.UNBREAKING, 3)
     addEnchantment(Enchantments.KNOCKBACK, 32)
 }
 
 val specialItemSupershotCrossbow: ItemStack = stackOf(Items.CROSSBOW).apply {
     addSpecialItemID(this, "supershot_crossbow")
-    set(DataComponentTypes.CUSTOM_NAME, Text.literal("Supershot Crossbow").formatted(Formatting.RED))
+    setCustomName(this, Text.literal("The Ancient Weapon BULLETUS").formatted(Formatting.RED))
+    setCustomLore(this, listOf(Text.of("shoot projectiles 360 degrees around you")))
     addEnchantment(Enchantments.UNBREAKING, 3)
     addEnchantment(Enchantments.MULTISHOT, 16)
 }
 
 val specialItemLightningTrident: ItemStack = stackOf(Items.TRIDENT).apply {
     addSpecialItemID(this, "lightning_trident")
-    set(DataComponentTypes.CUSTOM_NAME, Text.literal("Lightning Trident").formatted(Formatting.RED))
+    setCustomName(this, Text.literal("The Ancient Weapon SHOCKUS").formatted(Formatting.RED))
+    setCustomLore(this, listOf(Text.of("harness the power of lightning in any weather")))
     addEnchantment(Enchantments.UNBREAKING, 3)
     addEnchantment(Enchantments.LOYALTY, 3)
     addEnchantment(Enchantments.CHANNELING, 1)
 }
 
-val specialItemPumpkin: ItemStack = stackOf(Items.PUMPKIN).apply {
+val specialItemPumpkin: ItemStack = stackOf(Items.JACK_O_LANTERN).apply {
     addSpecialItemID(this, "pumpkin")
-    set(DataComponentTypes.CUSTOM_NAME, Text.literal("Golem Pumpkin").formatted(Formatting.RED))
+    setCustomName(this, Text.literal("The Ancient Weapon SPAWNUS").formatted(Formatting.RED))
+    setCustomLore(this, listOf(Text.of("summon iron golems at will wherever jack is placed")))
     addEnchantment(Enchantments.SHARPNESS, 1)
 }
 
 val specialItemBarrierBreaker: ItemStack = stackOf(Items.NETHERITE_SHOVEL).apply {
     addSpecialItemID(this, "barrier_breaker")
-    set(DataComponentTypes.CUSTOM_NAME, Text.literal("Barrier Breaker").formatted(Formatting.RED))
+    setCustomName(this, Text.literal("The Barrier Breaker").formatted(Formatting.RED))
+    setCustomLore(this, listOf(Text.of("you know where this needs to be used.")))
     addEnchantment(Enchantments.UNBREAKING, 3)
 }
 

@@ -1,8 +1,10 @@
 package dev.foxgirl.cminus.mixin;
 
 import com.llamalad7.mixinextras.sugar.Local;
+import dev.foxgirl.cminus.SpecialItemsKt;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.projectile.ProjectileEntity;
+import net.minecraft.item.ItemStack;
 import net.minecraft.item.RangedWeaponItem;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
@@ -19,7 +21,7 @@ public abstract class MixinRangedWeaponItem {
         at = @At("STORE"), ordinal = 1
     )
     private static int injected$load$j(int j, @Local(ordinal = 0) int i) {
-        return i;
+        return i == 0 ? 1 : i;
     }
 
     @Shadow
@@ -34,8 +36,16 @@ public abstract class MixinRangedWeaponItem {
             target = "Lnet/minecraft/item/RangedWeaponItem;shoot(Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/projectile/ProjectileEntity;IFFFLnet/minecraft/entity/LivingEntity;)V"
         )
     )
-    private void injected$shootAll$shoot(RangedWeaponItem rangedWeaponItem, LivingEntity shooter, ProjectileEntity projectile, int index, float speed, float divergence, float yaw, @Nullable LivingEntity target) {
-        shoot(shooter, projectile, index, speed, divergence, yaw * 10.0F, target);
+    private void injected$shootAll$shoot(
+        RangedWeaponItem rangedWeaponItem,
+        LivingEntity shooter, ProjectileEntity projectile, int index, float speed, float divergence, float yaw, @Nullable LivingEntity target,
+        @Local(ordinal = 0, argsOnly = true) ItemStack stack
+    ) {
+        if ("supershot_crossbow".equals(SpecialItemsKt.getSpecialItemID(stack))) {
+            shoot(shooter, projectile, index, speed, divergence, yaw * 10.0F, target);
+        } else {
+            shoot(shooter, projectile, index, speed, divergence, yaw, target);
+        }
     }
 
 }

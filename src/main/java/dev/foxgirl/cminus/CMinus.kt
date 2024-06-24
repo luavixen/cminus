@@ -18,11 +18,13 @@ import net.minecraft.entity.EntityType
 import net.minecraft.entity.ItemEntity
 import net.minecraft.entity.damage.DamageSource
 import net.minecraft.entity.damage.DamageTypes
+import net.minecraft.entity.mob.WardenEntity
 import net.minecraft.entity.player.PlayerEntity
 import net.minecraft.item.Item
 import net.minecraft.item.ItemStack
 import net.minecraft.item.Items
 import net.minecraft.network.packet.Packet
+import net.minecraft.network.packet.s2c.play.*
 import net.minecraft.particle.ParticleTypes
 import net.minecraft.scoreboard.*
 import net.minecraft.server.MinecraftServer
@@ -325,6 +327,7 @@ fun onStart() {
     scoreboard.setObjectiveSlot(ScoreboardDisplaySlot.BELOW_NAME, scoreboardLevelObjective)
 
     setupEndFightSequence()
+    setupFinalFightSequence()
 
     setupPlayers()
 
@@ -334,9 +337,15 @@ fun onTick() {
 
     for (player in server.playerManager.playerList) onTickPlayer(player)
 
+    Editor.update()
+
     for (task in delayedTasks.toTypedArray()) {
         if (task.ticks <= 0) {
-            task.runnable.run()
+            try {
+                task.runnable.run()
+            } catch (cause: Exception) {
+                logger.error("Unexpected exception in delayed task", cause)
+            }
             delayedTasks.remove(task)
         }
     }
@@ -484,6 +493,24 @@ fun onTickPlayer(player: ServerPlayerEntity) {
 }
 
 fun handlePacket(player: ServerPlayerEntity, packet: Packet<*>): Packet<*>? {
+
+    val joshEntity: Entity? = when (packet) {
+        is EntityS2CPacket -> packet.getEntity(player.world)
+        is EntitySpawnS2CPacket -> player.world.getEntityById(packet.id)
+        is EntityAttributesS2CPacket -> player.world.getEntityById(packet.entityId)
+        is EntityPositionS2CPacket -> player.world.getEntityById(packet.id)
+        is EntityTrackerUpdateS2CPacket -> player.world.getEntityById(packet.id)
+        else -> null
+    }
+    if (joshEntity != null) {
+        if (
+            joshEntity is WardenEntity &&
+            joshEntity.scoreboardTeam?.name == "cminus" &&
+            joshEntity.customName?.string != player.gameProfile.name
+        ) {
+            return null
+        }
+    }
 
     return packet
 

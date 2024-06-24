@@ -62,7 +62,7 @@ public abstract class MixinFindEntityTask {
         CallbackInfoReturnable<Boolean> info
     ) {
         if (!currentlyExecutingEvilMethod) {
-            boolean result;
+            boolean result = false;
             try {
                 currentlyExecutingEvilMethod = true;
                 if (livingEntity == null || livingEntity.getClass() == StandEntity.class) {
@@ -88,8 +88,8 @@ public abstract class MixinFindEntityTask {
                 result = false;
             } finally {
                 currentlyExecutingEvilMethod = false;
+                info.setReturnValue(result);
             }
-            info.setReturnValue(result);
         }
     }
 

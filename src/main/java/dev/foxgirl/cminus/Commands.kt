@@ -228,13 +228,21 @@ fun onCommandRegistration(dispatcher: CommandDispatcher<ServerCommandSource>, re
 
         })
 
-        it.then(literal("play_egg_animation").executesHandler { ctx, source, player ->
+        it.then(literal("play_egg_sequence").executesHandler { ctx, source, player ->
             Async.go {
                 val world = Async.poll { server.getWorld(World.END) }
                 val dragonFight = Async.poll { world.enderDragonFight }
                 val dragonEntity = Async.poll { world.getEntity(dragonFight.dragonUuid) as? EnderDragonEntity }
-                playEggAnimation(world, dragonFight, dragonEntity)
+                playEggSequence(world, dragonFight, dragonEntity)
             }
+            true
+        })
+        it.then(literal("play_final_fight_sequence").executesHandler { ctx, source, player ->
+            playFinalFightSequence()
+            true
+        })
+        it.then(literal("flood_the_world").executesHandler { ctx, source, player ->
+            floodTheWorld()
             true
         })
 

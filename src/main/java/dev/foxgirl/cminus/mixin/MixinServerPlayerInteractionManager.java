@@ -48,7 +48,7 @@ public abstract class MixinServerPlayerInteractionManager {
     @Unique
     private boolean usingCorrectTool(BlockState state) {
         var block = state.getBlock();
-        if (block == Blocks.BARRIER || block == Blocks.BEDROCK || block == Blocks.END_PORTAL_FRAME) {
+        if (block == Blocks.BARRIER || block == Blocks.BEDROCK || block == Blocks.END_PORTAL_FRAME || block == Blocks.DRAGON_EGG) {
             if ("barrier_breaker".equals(SpecialItemsKt.getSpecialItemID(player.getStackInHand(player.getActiveHand())))) {
                 return true;
             }
