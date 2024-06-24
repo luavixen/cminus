@@ -474,6 +474,8 @@ fun playFinalFightSequence() {
 
             Async.go {
                 while (joshEntity.isAlive) {
+                    Async.delay()
+
                     if (!joshEntity.hasStatusEffect(StatusEffects.INVISIBILITY)) {
                         joshEntity.addStatusEffect(StatusEffectInstance(StatusEffects.INVISIBILITY, Int.MAX_VALUE, 0, false, false, false))
                     }
@@ -481,8 +483,6 @@ fun playFinalFightSequence() {
                     val currentPlayer = players.getPlayer(joshEntity.customName!!.string) ?: continue
                     val currentPos = currentPlayer.pos.add(Vec3d(0.0, 0.0, 10.0).rotateY((360.0F - currentPlayer.yaw) * MathHelper.RADIANS_PER_DEGREE))
                     joshEntity.teleport(currentPlayer.serverWorld, currentPos.x, currentPos.y, currentPos.z, PositionFlag.VALUES, 0.0F, 0.0F)
-
-                    Async.delay()
                 }
             }
         }
